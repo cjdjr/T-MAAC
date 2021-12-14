@@ -16,5 +16,6 @@ env_args:
     "episode_limit": 240 # in time intervals
     "action_scale": null
     "action_bias": null
-    "mode": null # distributed / decentralised
+    "mode": null # distributed / decentralised / centralised
     "reset_action": True
+    "season": "all" # all / summer / winter

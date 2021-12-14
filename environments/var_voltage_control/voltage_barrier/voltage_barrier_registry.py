@@ -3,7 +3,7 @@ from .bump import bump
 from .courant_beltrami import courant_beltrami
 from .l1 import l1
 from .l2 import l2
-
+from .hard import hard
 
 
 Voltage_Barrier = dict(
@@ -11,5 +11,6 @@ Voltage_Barrier = dict(
     l2=l2,
     bowl=bowl,
     bump=bump,
-    courant_beltrami=courant_beltrami
+    courant_beltrami=courant_beltrami,
+    hard=hard,
 )

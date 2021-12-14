@@ -1,3 +1,4 @@
+from numpy import random
 from ..multiagentenv import MultiAgentEnv
 import numpy as np
 import pandapower as pp
@@ -9,7 +10,7 @@ from collections import namedtuple
 from .pf_res_plot import pf_res_plotly
 from .voltage_barrier.voltage_barrier_backend import VoltageBarrier
 
-
+from datetime import datetime
 
 def convert(dictionary):
     return namedtuple('GenericDict', dictionary.keys())(**dictionary)
@@ -47,6 +48,7 @@ class VoltageControl(MultiAgentEnv):
 
         # load the model of power network
         self.base_powergrid = self._load_network()
+        # self._build_tree()
         
         # load data
         self.pv_data = self._load_pv_data()
@@ -69,6 +71,15 @@ class VoltageControl(MultiAgentEnv):
         self.pv_std = self.pv_data.values.std(axis=0) / 100.0
         self._set_reactive_power_boundary()
 
+        if self.args.season == 'all':
+            self.start_day_func = self._select_start_day
+        elif self.args.season == 'summer':
+            self.start_day_func = self._select_summer_start_day
+        elif self.args.season == 'winter':
+            self.start_day_func = self._select_winter_start_day
+        else:
+            raise NotImplementedError("Please select correct season!")
+
         # define action space and observation space
         self.action_space = ActionSpace(low=-self.args.action_scale+self.args.action_bias, high=self.args.action_scale+self.args.action_bias)
         self.history = getattr(args, "history", 1)
@@ -79,6 +90,10 @@ class VoltageControl(MultiAgentEnv):
         elif self.args.mode == "decentralised":
             self.n_actions = len(self.base_powergrid.sgen)
             self.n_agents = len( set( self.base_powergrid.bus["zone"].to_numpy(copy=True) ) ) - 1 # exclude the main zone
+        elif self.args.mode == 'centralised':
+            self.n_actions = len(self.base_powergrid.sgen)
+            self.n_agents = 1
+    
         agents_obs, state = self.reset()
 
         self.obs_size = agents_obs[0].shape[0]
@@ -89,6 +104,9 @@ class VoltageControl(MultiAgentEnv):
         # initialise voltage barrier function
         self.voltage_barrier = VoltageBarrier(self.voltage_loss_type)
         self._rendering_initialized = False
+
+
+
 
     def reset(self, reset_time=True):
         """reset the env
@@ -106,8 +124,11 @@ class VoltageControl(MultiAgentEnv):
             # reset the time stamp
             if reset_time:
                 self._episode_start_hour = self._select_start_hour()
-                self._episode_start_day = self._select_start_day()
+                self._episode_start_day = self.start_day_func()
                 self._episode_start_interval = self._select_start_interval()
+
+            self.start_idx = self._episode_start_interval + self._episode_start_hour * (60 // self.time_delta) + self._episode_start_day * 24 * (60 // self.time_delta)
+            
             # get one episode of data
             self.pv_histories = self._get_episode_pv_history()
             self.active_demand_histories = self._get_episode_active_demand_history()
@@ -147,6 +168,7 @@ class VoltageControl(MultiAgentEnv):
         self._episode_start_hour = hour
         self._episode_start_day = day
         self._episode_start_interval = interval
+        self.start_idx = self._episode_start_interval + self._episode_start_hour * (60 // self.time_delta) + self._episode_start_day * 24 * (60 // self.time_delta)
         solvable = False
         while not solvable:
             # get one episode of data
@@ -212,6 +234,13 @@ class VoltageControl(MultiAgentEnv):
            the default state: voltage, active power of generators, bus state, load active power, load reactive power
         """
         state = []
+        if "date" in self.state_space:
+            idx = self.start_idx + self.steps - 1
+            state.append(self.pv_data.index[idx].month)
+            # state.append(self.pv_data.index[idx].day)
+            state.append(self.pv_data.index[idx].weekday())
+            # state.append(self.pv_data.index[idx].hour)
+            # state.append(self.pv_data.index[idx].minute)
         if "demand" in self.state_space:
             state += list(self.powergrid.res_bus["p_mw"].sort_index().to_numpy(copy=True))
             state += list(self.powergrid.res_bus["q_mvar"].sort_index().to_numpy(copy=True))
@@ -242,6 +271,14 @@ class VoltageControl(MultiAgentEnv):
                 zone_buses, zone, pv, q, sgen_bus = clusters[f"sgen{i}"]
                 zone_list.append(zone)
                 if not( zone in obs_zone_dict.keys() ):
+                    if "date" in self.state_space:
+                        idx = self.start_idx + self.steps - 1
+                        obs.append(self.pv_data.index[idx].month)
+                        # obs.append(self.pv_data.index[idx].day)
+                        obs.append(self.pv_data.index[idx].weekday())
+                        # obs.append(self.pv_data.index[idx].hour)
+                        # obs.append(self.pv_data.index[idx].minute)
+
                     if "demand" in self.state_space:
                         copy_zone_buses = copy.deepcopy(zone_buses)
                         copy_zone_buses.loc[sgen_bus]["p_mw"] -= pv
@@ -257,6 +294,7 @@ class VoltageControl(MultiAgentEnv):
                     if "va_degree" in self.state_space:
                         # transform the voltage phase to radian
                         obs += list(zone_buses.loc[:, "va_degree"].to_numpy(copy=True) * np.pi / 180)
+
                     obs_zone_dict[zone] = np.array(obs)
                 obs_len_list.append(obs_zone_dict[zone].shape[0])
             agents_obs = list()
@@ -293,6 +331,8 @@ class VoltageControl(MultiAgentEnv):
             for obs_zone in zone_obs_list:
                 pad_obs_zone = np.concatenate( [obs_zone, np.zeros(obs_max_len - obs_zone.shape[0])], axis=0 )
                 agents_obs.append(pad_obs_zone)
+        elif self.args.mode == 'centralised':
+            agents_obs = [self.get_state()]
         if self.history > 1:
             agents_obs_ = []
             for i, obs in enumerate(agents_obs):
@@ -329,6 +369,7 @@ class VoltageControl(MultiAgentEnv):
         """return the action according to a uniform distribution over [action_lower, action_upper)
         """
         rand_action = np.random.uniform(low=self.action_space.low, high=self.action_space.high, size=self.powergrid.sgen["q_mvar"].values.shape)
+        # rand_action = np.zeros(self.powergrid.sgen["q_mvar"].values.shape)
         return rand_action
 
     def get_total_actions(self):
@@ -354,6 +395,8 @@ class VoltageControl(MultiAgentEnv):
             zone_sgens = self.base_powergrid.sgen.loc[self.base_powergrid.sgen["name"] == f"zone{agent_id+1}"]
             avail_actions[zone_sgens.index] = 1
             return avail_actions
+        elif self.args.mode == "centralised":
+            return [1 for _ in range(self.n_actions)]
 
     def get_num_of_agents(self):
         """return the number of agents
@@ -390,6 +433,28 @@ class VoltageControl(MultiAgentEnv):
         self.time_delta = (pv_data.index[1] - pv_data.index[0]).seconds // 60
         episode_days = ( self.episode_limit // (24 * (60 // self.time_delta) ) ) + 1  # margin
         return np.random.choice(pv_days - episode_days)
+
+    def _select_summer_start_day(self):
+        pv_data = self.pv_data
+        self.time_delta = (pv_data.index[1] - pv_data.index[0]).seconds // 60
+        year = np.random.randint(2012,2015)
+        month = np.random.randint(5,9)
+        day = np.random.randint(1,31)
+        idx = (datetime(year,month,day) - datetime(2012,1,1)).days
+        return idx
+
+    def _select_winter_start_day(self):
+        pv_data = self.pv_data
+        self.time_delta = (pv_data.index[1] - pv_data.index[0]).seconds // 60
+        year = np.random.randint(2012,2015)
+        month = np.random.randint(10,14) % 12 + 1
+        max_day = {11: 30, 
+                   12: 30 if year==2014 else 31,
+                   1: 31,
+                   2: 29 if year==2012 else 28}
+        day = np.random.randint(1,max_day[month] + 1)
+        idx = (datetime(year,month,day) - datetime(2012,1,1)).days
+        return idx
 
     def _load_network(self):
         """load network
@@ -536,7 +601,8 @@ class VoltageControl(MultiAgentEnv):
                 pv = self.powergrid.sgen["p_mw"].loc[self.powergrid.sgen["name"] == f"zone{i+1}"]
                 q = self.powergrid.sgen["q_mvar"].loc[self.powergrid.sgen["name"] == f"zone{i+1}"]
                 clusters[f"zone{i+1}"] = (zone_res_buses, pv, q, sgen_res_buses)
-
+        elif self.args.mode == "centralised":
+            pass
         return clusters
     
     def _take_action(self, actions):
@@ -544,7 +610,8 @@ class VoltageControl(MultiAgentEnv):
         the control variables we consider are the exact reactive power
         of each distributed generator
         """
-        self.powergrid.sgen["q_mvar"] = self._clip_reactive_power(actions, self.powergrid.sgen["p_mw"])
+        self.now_q = self._clip_reactive_power(actions, self.powergrid.sgen["p_mw"])
+        self.powergrid.sgen["q_mvar"] = self.now_q
 
         # solve power flow to get the latest voltage with new reactive power and old deamnd and PV active power
         try:
@@ -564,6 +631,10 @@ class VoltageControl(MultiAgentEnv):
         """
         reactive_power_constraint = np.sqrt(self.s_max**2 - active_power**2)
         return reactive_power_constraint * reactive_actions
+
+    def get_q_divide_a_coff(self):
+        active_power = self.powergrid.sgen["p_mw"]
+        return np.sqrt(self.s_max**2 - active_power**2)
     
     def _calc_reward(self, info={}):
         """reward function
@@ -640,6 +711,45 @@ class VoltageControl(MultiAgentEnv):
         reactive = self.powergrid.sgen["q_mvar"].to_numpy(copy=True)
         return reactive
     
+    def _build_tree(self):
+        bus_num = len(self.base_powergrid.bus)
+        g = [[] for _ in range(bus_num)]
+        father = [-1 for _ in range(bus_num)]
+        dep = [0 for _ in range(bus_num)]
+
+        def dfs(u):
+            for edge in g[u]:
+                v = self.base_powergrid.line['to_bus'][edge]
+                dep[v] = dep[u] + 1
+                dfs(v)
+
+        def lca(u,v):
+            while u!=v:
+                if dep[u]<dep[v]:
+                    u,v = v,u
+                u = self.base_powergrid.line['from_bus'][father[u]]
+            return u
+                
+        for i in range(len(self.base_powergrid.line)):
+            u = self.base_powergrid.line['from_bus'][i]
+            v = self.base_powergrid.line['to_bus'][i]
+            g[u].append(i)
+            father[v]=i
+        dfs(0)
+        self.R = np.zeros((bus_num,bus_num), dtype=np.float32)
+        self.X = np.zeros((bus_num,bus_num), dtype=np.float32)
+        for i in range(bus_num):
+            for j in range(bus_num):
+                w = lca(i,j)
+                # print("lca({}, {}) = {}".format(i,j,w))
+                r, x = 0., 0.
+                while w!=0:
+                    r += self.base_powergrid.line['r_ohm_per_km'][father[w]] * self.base_powergrid.line['length_km'][father[w]]
+                    x += self.base_powergrid.line['x_ohm_per_km'][father[w]] * self.base_powergrid.line['length_km'][father[w]]
+                    w = self.base_powergrid.line['from_bus'][father[w]]
+                self.R[i][j] = r
+                self.X[i][j] = x
+
     def _init_render(self):
         from .rendering_voltage_control_env import Viewer
         self.viewer = Viewer()

@@ -9,16 +9,20 @@ from environments.var_voltage_control.voltage_control_env import VoltageControl
 from utilities.util import convert, dict2str
 from utilities.trainer import PGTrainer
 
-
+from transition.model import transition_model, transition_model_linear
 
 parser = argparse.ArgumentParser(description="Train rl agent.")
 parser.add_argument("--save-path", type=str, nargs="?", default="./", help="Please enter the directory of saving model.")
-parser.add_argument("--alg", type=str, nargs="?", default="maddpg", help="Please enter the alg name.")
+parser.add_argument("--alg", type=str, nargs="?", default="safemaddpg", help="Please enter the alg name.")
 parser.add_argument("--env", type=str, nargs="?", default="var_voltage_control", help="Please enter the env name.")
 parser.add_argument("--alias", type=str, nargs="?", default="", help="Please enter the alias for exp control.")
 parser.add_argument("--mode", type=str, nargs="?", default="distributed", help="Please enter the mode: distributed or decentralised.")
-parser.add_argument("--scenario", type=str, nargs="?", default="bus33_3min_final", help="Please input the valid name of an environment scenario.")
+parser.add_argument("--scenario", type=str, nargs="?", default="case322_3min_final", help="Please input the valid name of an environment scenario.")
 parser.add_argument("--voltage-barrier-type", type=str, nargs="?", default="l1", help="Please input the valid voltage barrier type: l1, courant_beltrami, l2, bowl or bump.")
+parser.add_argument("--season", type=str, nargs="?", default="all", help="all/summer/winter")
+parser.add_argument("--date-emb",  action='store_true')
+parser.add_argument("--safe", type=str, nargs="?", default="hard", help="none/hard/soft")
+parser.add_argument("--constraint_model_path", type=str, nargs="?", default="transition/case322_3min_final.lin_model")
 argv = parser.parse_args()
 
 # load env args
@@ -41,9 +45,15 @@ elif argv.scenario == 'case322_3min_final':
     env_config_dict["action_bias"] = 0.0
     env_config_dict["action_scale"] = 0.8
 
-assert argv.mode in ['distributed', 'decentralised'], "Please input the correct mode, e.g. distributed or decentralised."
+assert argv.mode in ['distributed', 'decentralised', 'centralised'], "Please input the correct mode, e.g. distributed or  or centralised."
 env_config_dict["mode"] = argv.mode
 env_config_dict["voltage_barrier_type"] = argv.voltage_barrier_type
+
+assert argv.season in ['all', 'summer', 'winter'], "Please input the correct season, e.g. all or summer or winter."
+env_config_dict["season"] = argv.season
+
+if argv.date_emb:
+    env_config_dict["state_space"].append("date")
 
 # load default args
 with open("./args/default.yaml", "r") as f:
@@ -64,6 +74,20 @@ env = VoltageControl(env_config_dict)
 alg_config_dict["agent_num"] = env.get_num_of_agents()
 alg_config_dict["obs_size"] = env.get_obs_size()
 alg_config_dict["action_dim"] = env.get_total_actions()
+
+if argv.date_emb:
+    alg_config_dict['agent_type'] = "rnn_with_date"
+    alg_config_dict['use_date'] = True
+
+constraint_model = None
+alg_config_dict['safe_filter'] = argv.safe
+if argv.safe != 'none':
+    alg_config_dict['constraint_model_path'] = argv.constraint_model_path
+    device = th.device( "cuda" if th.cuda.is_available() and alg_config_dict['cuda'] else "cpu" )
+    constraint_model = transition_model_linear().to(device)
+    constraint_model.load_state_dict(th.load(argv.constraint_model_path))
+    
+
 args = convert(alg_config_dict)
 
 # define the save path
@@ -98,7 +122,7 @@ strategy = Strategy[argv.alg]
 print (f"{args}\n")
 
 if strategy == "pg":
-    train = PGTrainer(args, model, env, logger)
+    train = PGTrainer(args, model, env, logger, constraint_model)
 elif strategy == "q":
     raise NotImplementedError("This needs to be implemented.")
 else:

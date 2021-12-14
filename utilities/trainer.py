@@ -7,16 +7,24 @@ from utilities.replay_buffer import TransReplayBuffer, EpisodeReplayBuffer
 
 
 class PGTrainer(object):
-    def __init__(self, args, model, env, logger):
+    def __init__(self, args, model, env, logger, constraint_model = None):
         self.args = args
         self.device = th.device( "cuda" if th.cuda.is_available() and self.args.cuda else "cpu" )
         self.logger = logger
         self.episodic = self.args.episodic
+        if constraint_model is not None:
+            self.constraint_model = constraint_model
         if self.args.target:
             target_net = model(self.args).to(self.device)
-            self.behaviour_net = model(self.args, target_net).to(self.device)
+            if constraint_model is not None:
+                self.behaviour_net = model(self.args, target_net, constraint_model = constraint_model).to(self.device)
+            else:
+                self.behaviour_net = model(self.args, target_net).to(self.device)
         else:
-            self.behaviour_net = model(self.args).to(self.device)
+            if constraint_model is not None:
+                self.behaviour_net = model(self.args, constraint_model = constraint_model).to(self.device)
+            else:
+                self.behaviour_net = model(self.args).to(self.device)
         if self.args.replay:
             if not self.episodic:
                 self.replay_buffer = TransReplayBuffer( int(self.args.replay_buffer_size) )

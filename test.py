@@ -18,6 +18,7 @@ parser.add_argument("--alias", type=str, nargs="?", default="", help="Please ent
 parser.add_argument("--mode", type=str, nargs="?", default="distributed", help="Please enter the mode: distributed or decentralised.")
 parser.add_argument("--scenario", type=str, nargs="?", default="bus33_3min_final", help="Please input the valid name of an environment scenario.")
 parser.add_argument("--voltage-barrier-type", type=str, nargs="?", default="l1", help="Please input the valid voltage barrier type: l1, courant_beltrami, l2, bowl or bump.")
+parser.add_argument("--date-emb",  action='store_true')
 parser.add_argument("--test-mode", type=str, nargs="?", default="single", help="Please input the valid test mode: single or batch.")
 parser.add_argument("--test-day", type=int, nargs="?", default=730, help="Please input the day you would test if the test mode is single.")
 parser.add_argument("--render", action="store_true", help="Activate the rendering of the environment.")
@@ -43,12 +44,15 @@ elif argv.scenario == 'case322_3min_final':
     env_config_dict["action_bias"] = 0.0
     env_config_dict["action_scale"] = 0.8
 
-assert argv.mode in ['distributed', 'decentralised'], "Please input the correct mode, e.g. distributed or decentralised."
+assert argv.mode in ['distributed', 'decentralised', 'centralised'], "Please input the correct mode, e.g. distributed or decentralised."
 env_config_dict["mode"] = argv.mode
 env_config_dict["voltage_barrier_type"] = argv.voltage_barrier_type
 
 # for one-day test
 env_config_dict["episode_limit"] = 480
+
+if argv.date_emb:
+    env_config_dict["state_space"].append("date")
 
 # load default args
 with open("./args/default.yaml", "r") as f:
@@ -71,6 +75,11 @@ alg_config_dict["agent_num"] = env.get_num_of_agents()
 alg_config_dict["obs_size"] = env.get_obs_size()
 alg_config_dict["action_dim"] = env.get_total_actions()
 alg_config_dict["cuda"] = False
+
+if argv.date_emb:
+    alg_config_dict['agent_type'] = "rnn_with_date"
+    alg_config_dict['use_date'] = True
+    
 args = convert(alg_config_dict)
 
 # define the save path
@@ -106,9 +115,15 @@ if argv.test_mode == 'single':
     # record = test.run(199, 23, 2) # (day, hour, 3min)
     # record = test.run(730, 23, 2) # (day, hour, 3min)
     record = test.run(argv.test_day, 23, 2)
-    with open('test_record_'+log_name+f'_day{argv.test_day}'+'.pickle', 'wb') as f:
+    with open('test_record/test_record_'+log_name+f'_day{argv.test_day}'+'.pickle', 'wb') as f:
         pickle.dump(record, f, pickle.HIGHEST_PROTOCOL)
 elif argv.test_mode == 'batch':
-    record = test.batch_run(10)
-    with open('test_record_'+log_name+'_'+argv.test_mode+'.pickle', 'wb') as f:
+    record = test.batch_run(100)
+    with open('test_record/test_record_'+log_name+'_'+argv.test_mode+'.pickle', 'wb') as f:
+        pickle.dump(record, f, pickle.HIGHEST_PROTOCOL)
+elif argv.test_mode == 'test_data':
+    import pandas as pd
+    dataframe = pd.read_csv("test_data.csv")
+    record = test.test_data_run(dataframe)
+    with open('test_record/test_record_'+log_name+'_'+argv.test_mode+'.pickle', 'wb') as f:
         pickle.dump(record, f, pickle.HIGHEST_PROTOCOL)

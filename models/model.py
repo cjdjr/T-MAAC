@@ -3,6 +3,7 @@ import torch.nn as nn
 import numpy as np
 from collections import namedtuple
 from utilities.util import prep_obs, translate_action
+from utilities.define import * 
 
 
 
@@ -159,6 +160,12 @@ class Model(nn.Module):
             else:
                 from agents.rnn_agent import RNNAgent
             Agent = RNNAgent
+        elif self.args.agent_type == 'rnn_with_date':
+            if self.args.gaussian_policy:
+                NotImplementedError()
+            else:
+                from agents.rnn_agent_dateemb import RNNAgent
+            Agent = RNNAgent
         else:
             NotImplementedError()
             
@@ -195,7 +202,7 @@ class Model(nn.Module):
         return values
 
     def train_process(self, stat, trainer):
-        stat_train = {'mean_train_reward': 0}
+        stat_train = {'mean_train_reward': 0, 'mean_train_solver_infeasible': 0, 'mean_train_solver_interventions': 0, 'mean_true_safe_action': 0}
 
         if self.args.episodic:
             episode = []
@@ -212,6 +219,23 @@ class Model(nn.Module):
             action, action_pol, log_prob_a, _, hid = self.get_actions(state_, status='train', exploration=True, actions_avail=th.tensor(trainer.env.get_avail_actions()), target=False, last_hid=last_hid)
             value = self.value(state_, action_pol)
             _, actual = translate_action(self.args, action, trainer.env)
+            global_state_ = th.tensor(global_state).to(th.float32).to(self.device).contiguous().view(1,-1)
+            actual_ = th.tensor(actual).to(th.float32).to(self.device).contiguous().view(1,-1)
+
+            if self.args.safe_filter != 'none':
+                k = np.array(trainer.env.get_q_divide_a_coff())
+                lb = trainer.env.action_space.low
+                ub = trainer.env.action_space.high
+                if self.args.safe_filter == 'hard':
+                    actual, flag = self.correct_actions_hard(global_state_, actual_, k, lb, ub)
+                elif self.args.safe_filter == 'soft':
+                    actual, flag = self.correct_actions_soft(global_state_, actual_, k, lb, ub)
+                # actual = actual.detach().squeeze().cpu().numpy()
+                if flag == INFEASIBLE:
+                    stat_train['mean_train_solver_infeasible'] += 1
+                if flag == INTERVENTIONS:
+                    stat_train['mean_train_solver_interventions'] += 1
+                
             # reward
             reward, done, info = trainer.env.step(actual)
             reward_repeat = [reward]*trainer.env.get_num_of_agents()
@@ -265,8 +289,10 @@ class Model(nn.Module):
     def evaluation(self, stat, trainer):
         num_eval_episodes = self.args.num_eval_episodes
         stat_test = {}
+        stat_test_min_max = {'max_test_constraint_error':-1.0, 'min_test_constraint_error':1.0}
+        constraint_model = trainer.constraint_model
         for _ in range(num_eval_episodes):
-            stat_test_epi = {'mean_test_reward': 0}
+            stat_test_epi = {'mean_test_reward': 0, 'mean_test_constraint_error':0}
             state, global_state = trainer.env.reset()
             # init hidden states
             last_hid = self.policy_dicts[0].init_hidden()
@@ -277,6 +303,18 @@ class Model(nn.Module):
                 reward, done, info = trainer.env.step(actual)
                 done_ = done or t==self.args.max_steps-1
                 next_state = trainer.env.get_obs()
+
+                with th.no_grad():
+                    q = trainer.env.now_q
+                    state = trainer.env.get_state()
+                    label_v = state[-2*len(trainer.env.base_powergrid.bus):-len(trainer.env.base_powergrid.bus)]
+                    state = th.tensor(state).to(th.float32).to(self.device)[None,:]
+                    q = th.tensor(q).to(th.float32).to(self.device)[None,:]
+                    pred_v = constraint_model(th.cat((state,q),dim=1)).detach().squeeze().cpu().numpy()
+                    stat_test_epi['mean_test_constraint_error'] += np.mean(np.abs(pred_v - label_v))
+                    stat_test_min_max['max_test_constraint_error'] = max(stat_test_min_max['max_test_constraint_error'], np.max(pred_v - label_v))
+                    stat_test_min_max['min_test_constraint_error'] = min(stat_test_min_max['min_test_constraint_error'], np.min(pred_v - label_v))
+
                 if isinstance(done, list): done = np.sum(done)
                 for k, v in info.items():
                     if 'mean_test_' + k not in stat_test_epi.keys():
@@ -300,6 +338,7 @@ class Model(nn.Module):
         for k, v in stat_test.items():
             stat_test[k] = v / float(num_eval_episodes)
         stat.update(stat_test)
+        stat.update(stat_test_min_max)
 
     def unpack_data(self, batch):
         reward = th.tensor(batch.reward, dtype=th.float).to(self.device)

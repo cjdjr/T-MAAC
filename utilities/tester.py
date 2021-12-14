@@ -97,11 +97,60 @@ class PGTester(object):
             test_results[k] = (np.mean(v), 2 * np.std(v))
         self.print_info(test_results)
         return test_results
+
+    def test_data_run(self, test_data):
+        test_results = {}
+        for month in range(1,13):
+            test_results[month] = {}
+        num_epsiodes = len(test_data)
+        for epi in range(num_epsiodes):
+            # reset env
+            state, global_state = self.env.manual_reset(test_data.iloc[epi]['day_id'],23,2)
+            month = test_data.iloc[epi]['month']
+
+            # init hidden states
+            last_hid = self.behaviour_net.policy_dicts[0].init_hidden()
+
+            for t in range(self.args.max_steps):
+                if self.render:
+                    self.env.render()
+                    time.sleep(0.01)
+                state_ = prep_obs(state).contiguous().view(1, self.n_, self.obs_dim).to(self.device)
+                action, _, _, _, hid = self.behaviour_net.get_actions(state_, status='test', exploration=False, actions_avail=th.tensor(self.env.get_avail_actions()), target=False, last_hid=last_hid)
+                _, actual = translate_action(self.args, action, self.env)
+                reward, done, info = self.env.step(actual, add_noise=False)
+                done_ = done or t==self.args.max_steps-1
+                next_state = self.env.get_obs()
+                for k, v in info.items():
+                    if 'mean_test_'+k not in test_results[month].keys():
+                        test_results[month]['mean_test_'+k] = [v]
+                    else:
+                        test_results[month]['mean_test_'+k].append(v)
+                # set the next state
+                state = next_state
+                # set the next last_hid
+                last_hid = hid
+                if done_:
+                    break
+            print (f"This is the test episode: {epi}")
+        for month in range(1,13):
+            for k, v in test_results[month].items():
+                test_results[month][k] = (np.mean(v), 2 * np.std(v))
+        self.print_info(test_results, True)
+        return test_results
     
-    def print_info(self, stat):
-        string = [f'Test Results:']
-        for k, v in stat.items():
-            string.append(k+f': mean: {v[0]:2.4f}, \t2std: {v[1]:2.4f}')
-        string = "\n".join(string)
+    def print_info(self, stat, split_month = False):
+        if not split_month:
+            string = [f'Test Results:']
+            for k, v in stat.items():
+                string.append(k+f': mean: {v[0]:2.4f}, \t2std: {v[1]:2.4f}')
+            string = "\n".join(string)
+        else:
+            string = []
+            for month in range(1,13):
+                string.append('{} Test Results:'.format(month))
+                for k, v in stat[month].items():
+                    string.append(k+f': mean: {v[0]:2.4f}, \t2std: {v[1]:2.4f}')
+            string = "\n".join(string)
         print (string)
             

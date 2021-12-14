@@ -112,3 +112,14 @@ venv/
 tensorboard/
 model_save/
 data/
+plot_save/
+test_record/
+*_result_all/
+traditional_control_data/
+multi_test.py
+playground.py
+*.model*
+*.lin_model*
+*.npy
+plot.py
+*.csv

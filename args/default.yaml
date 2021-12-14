@@ -21,8 +21,10 @@
 "batch_size": 32 # transition update: steps / episodic update: episodes
 "replay": True
 "replay_buffer_size": 5.0e+3
-"agent_type": "rnn" # rnn/mlp
+"agent_type": "rnn" # rnn/mlp/rnn_with_date
 "agent_id": True
+"use_date": False
+"date_dim": 2
 "shared_params": True # agent_id can be switched off if False
 "layernorm": True # add layernorm on the first layer over inputs
 "mixer": False
@@ -37,7 +39,7 @@
 "double_q": True
 "clip_c": 1.0
 "gamma": 0.99
-"hid_size": 64
+"hid_size": 64 # 64
 "continuous": True # if the control variable is continuous
 "normalize_advantages": False
 "train_episodes_num": 400
@@ -49,3 +51,4 @@
 "reward_normalisation": True
 "eval_freq": 20 # evaluation per xxx episodes
 "num_eval_episodes": 10 # number of episodes for an evaluation
+"safe_filter": null

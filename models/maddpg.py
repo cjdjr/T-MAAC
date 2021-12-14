@@ -22,11 +22,14 @@ class MADDPG(Model):
             input_shape = (self.obs_dim + self.act_dim) * self.n_ + self.n_
         else:
             input_shape = (self.obs_dim + self.act_dim) * self.n_
+        if self.args.use_date:
+            input_shape -= self.args.date_dim * (self.n_ - 1 )
+
         output_shape = 1
         if self.args.shared_params:
-            self.value_dicts = nn.ModuleList( [ MLPCritic(input_shape, output_shape, self.args) ] )
+            self.value_dicts = nn.ModuleList( [ MLPCritic(input_shape, output_shape, self.args, self.args.use_date) ] )
         else:
-            self.value_dicts = nn.ModuleList( [ MLPCritic(input_shape, output_shape, self.args) for _ in range(self.n_) ] )
+            self.value_dicts = nn.ModuleList( [ MLPCritic(input_shape, output_shape, self.args, self.args.use_date) for _ in range(self.n_) ] )
 
     def construct_model(self):
         self.construct_value_net()
@@ -36,9 +39,13 @@ class MADDPG(Model):
         # obs_shape = (b, n, o)
         # act_shape = (b, n, a)
         batch_size = obs.size(0)
-
+        if self.args.use_date:
+            date = obs[:,:,:self.args.date_dim]
+            obs = obs[:,:,self.args.date_dim:]
         obs_repeat = obs.unsqueeze(1).repeat(1, self.n_, 1, 1) # shape = (b, n, n, o)
         obs_reshape = obs_repeat.contiguous().view(batch_size, self.n_, -1) # shape = (b, n, n*o)
+        if self.args.use_date:
+            obs_reshape = th.cat((date, obs_reshape), dim=-1)
 
         # add agent id
         agent_ids = th.eye(self.n_).unsqueeze(0).repeat(batch_size, 1, 1).to(self.device) # shape = (b, n, n)
