@@ -1,0 +1,13 @@
+alg: "csmaddpg"
+
+alg_args:
+    "policy_lrate": 1.0e-4
+    "value_lrate": 1.0e-4
+    "gaussian_policy": False
+    "multiplier": True
+    "action_enforcebound": True
+    "init_lambda": 10.0
+    "lambda_lrate": 1.0e-5
+    "upper_bound": 1.0e-3
+
+    
