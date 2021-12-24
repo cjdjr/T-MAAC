@@ -1,0 +1,14 @@
+alg: "transmaddpg"
+
+alg_args:
+    "policy_lrate": 1.0e-4
+    "value_lrate": 1.0e-4
+    "attend_heads": 4
+    "n_layers": 2
+    "norm_in": False
+    "gaussian_policy": False
+    "action_enforcebound": True
+    "predict_loss": True
+    "bus_num": null
+    "obs_position_list": null
+    
