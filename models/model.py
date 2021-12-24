@@ -2,7 +2,7 @@ import torch as th
 import torch.nn as nn
 import numpy as np
 from collections import namedtuple
-from utilities.util import prep_obs, translate_action
+from utilities.util import prep_obs, translate_action, rev_translate_action
 from utilities.define import * 
 
 
@@ -16,8 +16,9 @@ class Model(nn.Module):
         self.hid_dim = self.args.hid_size
         self.obs_dim = self.args.obs_size
         self.act_dim = self.args.action_dim
-        self.Transition = namedtuple('Transition', ('state', 'action', 'log_prob_a', 'value', 'next_value', 'reward', 'next_state', 'done', 'last_step', 'action_avail', 'last_hid', 'hid'))
+        self.Transition = namedtuple('Transition', ('state', 'action', 'log_prob_a', 'value', 'next_value', 'reward', 'cost', 'next_state', 'done', 'last_step', 'action_avail', 'last_hid', 'hid'))
         self.batchnorm = nn.BatchNorm1d(self.n_)
+        self.costbatchnorm = nn.BatchNorm1d(self.n_)
         
     def reload_params_to_target(self):
         self.target_net.policy_dicts.load_state_dict( self.policy_dicts.state_dict() )
@@ -51,6 +52,8 @@ class Model(nn.Module):
                 if self.args.mixer:
                     for _ in range(self.args.mixer_update_epochs):
                         trainer.mixer_replay_process(stat)
+                if self.args.multiplier:
+                    trainer.lambda_replay_process(stat)
                 # TODO: hard code
                 # clear replay buffer for on-policy algorithm
                 if self.__class__.__name__ in ["COMA", "IAC", "IPPO", "MAPPO"] :
@@ -65,6 +68,8 @@ class Model(nn.Module):
                 if self.args.mixer:
                     for _ in range(self.args.mixer_update_epochs):
                         trainer.mixer_replay_process(stat)
+                if self.args.multiplier:
+                    trainer.lambda_replay_process(stat)
         if self.args.target:
             target_cond = trainer.steps%self.args.target_update_freq==0
             if target_cond:
@@ -199,16 +204,19 @@ class Model(nn.Module):
         obs = th.tensor(obs).to(self.device).float()
         act = th.tensor(act).to(self.device).float()
         values = self.value(obs, act)
+        if self.args.multiplier:
+            values,costs = values
         return values
 
     def train_process(self, stat, trainer):
-        stat_train = {'mean_train_reward': 0, 'mean_train_solver_infeasible': 0, 'mean_train_solver_interventions': 0, 'mean_true_safe_action': 0}
+        stat_train = {'mean_train_reward': 0, 'mean_train_solver_infeasible': 0, 'mean_train_solver_interventions': 0}
 
         if self.args.episodic:
             episode = []
 
         # reset env
         state, global_state = trainer.env.reset()
+        # state, global_state = trainer.env.manual_reset(199, 23, 2)
 
         # init hidden states
         last_hid = self.policy_dicts[0].init_hidden()
@@ -218,59 +226,73 @@ class Model(nn.Module):
             state_ = prep_obs(state).to(self.device).contiguous().view(1, self.n_, self.obs_dim)
             action, action_pol, log_prob_a, _, hid = self.get_actions(state_, status='train', exploration=True, actions_avail=th.tensor(trainer.env.get_avail_actions()), target=False, last_hid=last_hid)
             value = self.value(state_, action_pol)
+            if self.args.multiplier:
+                value, cost = value
             _, actual = translate_action(self.args, action, trainer.env)
-            global_state_ = th.tensor(global_state).to(th.float32).to(self.device).contiguous().view(1,-1)
-            actual_ = th.tensor(actual).to(th.float32).to(self.device).contiguous().view(1,-1)
 
+            # safe filter
             if self.args.safe_filter != 'none':
+                global_state_ = th.tensor(global_state).to(th.float32).to(self.device).contiguous().view(1,-1)
+                actual_ = th.tensor(actual).to(th.float32).to(self.device).contiguous().view(1,-1)
                 k = np.array(trainer.env.get_q_divide_a_coff())
                 lb = trainer.env.action_space.low
                 ub = trainer.env.action_space.high
                 if self.args.safe_filter == 'hard':
                     actual, flag = self.correct_actions_hard(global_state_, actual_, k, lb, ub)
                 elif self.args.safe_filter == 'soft':
-                    actual, flag = self.correct_actions_soft(global_state_, actual_, k, lb, ub)
+                    actual, flag = self.correct_actions_soft(global_state_, actual_, k, lb, ub, trainer.env.pv_index)
+                safe_action_pol = rev_translate_action(self.args, actual, trainer.env)
                 # actual = actual.detach().squeeze().cpu().numpy()
                 if flag == INFEASIBLE:
                     stat_train['mean_train_solver_infeasible'] += 1
                 if flag == INTERVENTIONS:
                     stat_train['mean_train_solver_interventions'] += 1
+
                 
             # reward
             reward, done, info = trainer.env.step(actual)
-            reward_repeat = [reward]*trainer.env.get_num_of_agents()
+            if trainer.env.independ_reward:
+                reward_repeat = reward 
+            else:
+                reward_repeat = [reward]*trainer.env.get_num_of_agents()
+            out_of_control = [info['percentage_of_v_out_of_control']] * trainer.env.get_num_of_agents()
             # next state, action, value
             next_state = trainer.env.get_obs()
             next_state_ = prep_obs(next_state).to(self.device).contiguous().view(1, self.n_, self.obs_dim)
             _, next_action_pol, _, _, _ = self.get_actions(next_state_, status='train', exploration=True, actions_avail=th.tensor(trainer.env.get_avail_actions()), target=False, last_hid=hid)
             next_value = self.value(next_state_, next_action_pol)
+            if self.args.multiplier:
+                next_value, next_cost = next_value
             # store trajectory
             if isinstance(done, list): done = np.sum(done)
             done_ = done or t==self.args.max_steps-1
-            trans = self.Transition(state,
-                                    action_pol.detach().cpu().numpy(),
-                                    log_prob_a,
-                                    value.detach().cpu().numpy(),
-                                    next_value.detach().cpu().numpy(),
-                                    np.array(reward_repeat),
-                                    next_state,
-                                    done,
-                                    done_,
-                                    trainer.env.get_avail_actions(),
-                                    last_hid.detach().cpu().numpy(),
-                                    hid.detach().cpu().numpy()
-                                   )
-            if not self.args.episodic:
-                self.transition_update(trainer, trans, stat)
-            else:
-                episode.append(trans)
+            if not self.args.safe_trans or info["totally_controllable_ratio"] == 1.:
+                trans = self.Transition(state,
+                                        action_pol.detach().cpu().numpy() if self.args.safe_filter == 'none' else safe_action_pol,
+                                        log_prob_a,
+                                        value.detach().cpu().numpy(),
+                                        next_value.detach().cpu().numpy(),
+                                        np.array(reward_repeat),
+                                        np.array(out_of_control),
+                                        next_state,
+                                        done,
+                                        done_,
+                                        trainer.env.get_avail_actions(),
+                                        last_hid.detach().cpu().numpy(),
+                                        hid.detach().cpu().numpy()
+                                    )
+                if not self.args.episodic:
+                    self.transition_update(trainer, trans, stat)
+                else:
+                    episode.append(trans)
             for k, v in info.items():
                 if 'mean_train_'+k not in stat_train.keys():
                     stat_train['mean_train_' + k] = v
                 else:
                     stat_train['mean_train_' + k] += v
-            stat_train['mean_train_reward'] += reward
-            trainer.steps += 1
+            stat_train['mean_train_reward'] += np.mean(reward)
+            if not self.args.safe_trans or info["totally_controllable_ratio"] == 1.:
+                trainer.steps += 1
             if done_:
                 break
             # set the next state
@@ -291,29 +313,43 @@ class Model(nn.Module):
         stat_test = {}
         stat_test_min_max = {'max_test_constraint_error':-1.0, 'min_test_constraint_error':1.0}
         constraint_model = trainer.constraint_model
+        test_data=  [
+                        529,
+                        893,
+                        152,
+                        160,
+                        530,
+                        902,
+                        903,
+                        905,
+                        520,
+                        526,
+                    ]
+        trainer.env.set_episode_limit(self.args.max_eval_steps)
         for _ in range(num_eval_episodes):
             stat_test_epi = {'mean_test_reward': 0, 'mean_test_constraint_error':0}
-            state, global_state = trainer.env.reset()
+            # state, global_state = trainer.env.reset()
+            state, global_state = trainer.env.manual_reset(test_data[_], 23, 2)
             # init hidden states
             last_hid = self.policy_dicts[0].init_hidden()
-            for t in range(self.args.max_steps):
+            for t in range(self.args.max_eval_steps):
                 state_ = prep_obs(state).to(self.device).contiguous().view(1, self.n_, self.obs_dim)
                 action, _, _, _, hid = self.get_actions(state_, status='test', exploration=False, actions_avail=th.tensor(trainer.env.get_avail_actions()), target=False, last_hid=last_hid)
                 _, actual = translate_action(self.args, action, trainer.env)
                 reward, done, info = trainer.env.step(actual)
-                done_ = done or t==self.args.max_steps-1
+                done_ = done or t==self.args.max_eval_steps-1
                 next_state = trainer.env.get_obs()
-
-                with th.no_grad():
-                    q = trainer.env.now_q
-                    state = trainer.env.get_state()
-                    label_v = state[-2*len(trainer.env.base_powergrid.bus):-len(trainer.env.base_powergrid.bus)]
-                    state = th.tensor(state).to(th.float32).to(self.device)[None,:]
-                    q = th.tensor(q).to(th.float32).to(self.device)[None,:]
-                    pred_v = constraint_model(th.cat((state,q),dim=1)).detach().squeeze().cpu().numpy()
-                    stat_test_epi['mean_test_constraint_error'] += np.mean(np.abs(pred_v - label_v))
-                    stat_test_min_max['max_test_constraint_error'] = max(stat_test_min_max['max_test_constraint_error'], np.max(pred_v - label_v))
-                    stat_test_min_max['min_test_constraint_error'] = min(stat_test_min_max['min_test_constraint_error'], np.min(pred_v - label_v))
+                if constraint_model is not None:
+                    with th.no_grad():
+                        q = trainer.env.now_q
+                        state = trainer.env.get_state()
+                        label_v = state[-2*len(trainer.env.base_powergrid.bus):-len(trainer.env.base_powergrid.bus)]
+                        state = th.tensor(state).to(th.float32).to(self.device)[None,:]
+                        q = th.tensor(q).to(th.float32).to(self.device)[None,:]
+                        pred_v = constraint_model(th.cat((state,q),dim=1)).detach().squeeze().cpu().numpy()
+                        stat_test_epi['mean_test_constraint_error'] += np.mean(np.abs(pred_v - label_v))
+                        stat_test_min_max['max_test_constraint_error'] = max(stat_test_min_max['max_test_constraint_error'], np.max(pred_v - label_v))
+                        stat_test_min_max['min_test_constraint_error'] = min(stat_test_min_max['min_test_constraint_error'], np.min(pred_v - label_v))
 
                 if isinstance(done, list): done = np.sum(done)
                 for k, v in info.items():
@@ -321,7 +357,7 @@ class Model(nn.Module):
                         stat_test_epi['mean_test_' + k] = v
                     else:
                         stat_test_epi['mean_test_' + k] += v
-                stat_test_epi['mean_test_reward'] += reward
+                stat_test_epi['mean_test_reward'] += np.mean(reward)
                 if done_:
                     break
                 # set the next state
@@ -339,9 +375,11 @@ class Model(nn.Module):
             stat_test[k] = v / float(num_eval_episodes)
         stat.update(stat_test)
         stat.update(stat_test_min_max)
+        trainer.env.set_episode_limit(self.args.max_steps)
 
     def unpack_data(self, batch):
         reward = th.tensor(batch.reward, dtype=th.float).to(self.device)
+        cost = th.tensor(batch.cost, dtype=th.float).to(self.device)
         last_step = th.tensor(batch.last_step, dtype=th.float).to(self.device).contiguous().view(-1, 1)
         done = th.tensor(batch.done, dtype=th.float).to(self.device).contiguous().view(-1, 1)
         action = th.tensor(np.concatenate(batch.action, axis=0), dtype=th.float).to(self.device)
@@ -355,4 +393,5 @@ class Model(nn.Module):
         hid = th.tensor(np.concatenate(batch.hid, axis=0), dtype=th.float).to(self.device)
         if self.args.reward_normalisation:
             reward = self.batchnorm(reward).to(self.device)
-        return (state, action, log_prob_a, value, next_value, reward, next_state, done, last_step, action_avail, last_hid, hid)
+            # cost = self.costbatchnorm(cost).to(self.device)
+        return (state, action, log_prob_a, value, next_value, reward, cost, next_state, done, last_step, action_avail, last_hid, hid)

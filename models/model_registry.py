@@ -9,8 +9,8 @@ from .ippo import IPPO
 from .mappo import MAPPO
 from .facmaddpg import FACMADDPG
 from .safe_maddpg import SafeMADDPG
-
-
+from .constrained_maddpg import CSMADDPG
+from .trans_maddpg import TransMADDPG
 
 Model = dict(maddpg=MADDPG,
              sqddpg=SQDDPG,
@@ -22,7 +22,9 @@ Model = dict(maddpg=MADDPG,
              ippo=IPPO,
              mappo=MAPPO,
              facmaddpg=FACMADDPG,
-             safemaddpg=SafeMADDPG
+             safemaddpg=SafeMADDPG,
+             csmaddpg=CSMADDPG,
+             transmaddpg=TransMADDPG,
             )
 
 Strategy = dict(maddpg='pg',
@@ -35,5 +37,7 @@ Strategy = dict(maddpg='pg',
                 ippo='pg',
                 mappo='pg',
                 facmaddpg='pg',
-                safemaddpg='pg'
+                safemaddpg='pg',
+                csmaddpg='pg',
+                transmaddpg='pg',
             )

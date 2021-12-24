@@ -1,36 +1,29 @@
 import torch as th
 import torch.nn as nn
 import numpy as np
+from utilities.util import select_action
 from models.maddpg import MADDPG
+from critics.transformer_critic import TransformerCritic
 
-from qpsolvers import solve_qp
-from utilities.define import * 
 
-from critics.mlp_critic_two_head import MLPTWOHEADCritic
-from critics.mlp_critic import MLPCritic
-
-class CSMADDPG(MADDPG):
-
+class TransMADDPG(MADDPG):
     def __init__(self, args, target_net=None):
-        super(CSMADDPG, self).__init__(args, target_net)
-        self.multiplier = th.nn.Parameter(th.tensor(args.init_lambda,device=self.device))
-        self.upper_bound = args.upper_bound
+        self.obs_position_list = args.obs_position_list
+        self.predict_dim = self.obs_position_list[:,1]-self.obs_position_list[:,0]
+        super(TransMADDPG, self).__init__(args, target_net)
 
     def construct_value_net(self):
         if self.args.agent_id:
-            input_shape = (self.obs_dim + self.act_dim) * self.n_ + self.n_
+            input_shape = (self.args.hid_size + self.act_dim) * self.n_ + self.n_
         else:
-            input_shape = (self.obs_dim + self.act_dim) * self.n_
+            input_shape = (self.args.hid_size + self.act_dim) * self.n_
         if self.args.use_date:
             input_shape -= self.args.date_dim * (self.n_ - 1 )
-
         output_shape = 1
-        if self.args.shared_params:
-            self.value_dicts = nn.ModuleList( [ MLPCritic(input_shape, output_shape, self.args, self.args.use_date) ] )
-            self.cost_dicts = nn.ModuleList( [ MLPCritic(input_shape, output_shape, self.args, self.args.use_date) ] )
+        if self.args.predict_loss:
+            self.value_dicts = nn.ModuleList( [ TransformerCritic(self.obs_dim, self.act_dim, input_shape, output_shape, self.args, self.predict_dim ) ] )
         else:
-            self.value_dicts = nn.ModuleList( [ MLPCritic(input_shape, output_shape, self.args, self.args.use_date) for _ in range(self.n_) ] )
-            self.cost_dicts = nn.ModuleList( [ MLPCritic(input_shape, output_shape, self.args, self.args.use_date) for _ in range(self.n_) ] )
+            self.value_dicts = nn.ModuleList( [ TransformerCritic(self.obs_dim, self.act_dim, input_shape, output_shape, self.args) ] )
 
     def value(self, obs, act):
         # obs_shape = (b, n, o)
@@ -39,6 +32,7 @@ class CSMADDPG(MADDPG):
         if self.args.use_date:
             date = obs[:,:,:self.args.date_dim]
             obs = obs[:,:,self.args.date_dim:]
+        obs = self.value_dicts[0].encoder(obs)
         obs_repeat = obs.unsqueeze(1).repeat(1, self.n_, 1, 1) # shape = (b, n, n, o)
         obs_reshape = obs_repeat.contiguous().view(batch_size, self.n_, -1) # shape = (b, n, n*o)
         if self.args.use_date:
@@ -70,23 +64,16 @@ class CSMADDPG(MADDPG):
 
         if self.args.shared_params:
             agent_value = self.value_dicts[0]
-            agent_cost = self.cost_dicts[0]
-            values, _ = agent_value(inputs, None)
-            costs, _ = agent_cost(inputs, None)
+            values, _ = agent_value(inputs)
             values = values.contiguous().view(batch_size, self.n_, 1)
-            costs = costs.contiguous().view(batch_size, self.n_, 1)
         else:
             values = []
-            costs = []
-            for i, agent_value,agent_cost in enumerate(self.value_dicts, self.cost_dicts):
+            for i, agent_value in enumerate(self.value_dicts):
                 value, _ = agent_value(inputs[:, i, :], None)
-                cost, _ = agent_cost(inputs[:, i, :], None)
                 values.append(value)
-                costs.append(cost)
             values = th.stack(values, dim=1)
-            costs = th.stack(costs, dim=1)
 
-        return values, costs
+        return values
 
     def get_loss(self, batch):
         batch_size = len(batch.state)
@@ -96,27 +83,34 @@ class CSMADDPG(MADDPG):
             _, next_actions, _, _, _ = self.get_actions(next_state, status='train', exploration=False, actions_avail=actions_avail, target=False, last_hid=hids)
         else:
             _, next_actions, _, _, _ = self.get_actions(next_state, status='train', exploration=False, actions_avail=actions_avail, target=True, last_hid=hids)
-        compose = self.value(state, actions_pol)
-        values_pol, costs_pol = compose[0].contiguous().view(-1, self.n_), compose[1].contiguous().view(-1, self.n_)
-        compose = self.value(state, actions)
-        values, costs = compose[0].contiguous().view(-1, self.n_), compose[1].contiguous().view(-1, self.n_)
-        compose = self.target_net.value(next_state, next_actions.detach())
-        next_values, next_costs = compose[0].contiguous().view(-1, self.n_), compose[1].contiguous().view(-1, self.n_)
-        returns, cost_returns = th.zeros((batch_size, self.n_), dtype=th.float).to(self.device), th.zeros((batch_size, self.n_), dtype=th.float).to(self.device)
+        values_pol = self.value(state, actions_pol).contiguous().view(-1, self.n_)
+        values = self.value(state, actions).contiguous().view(-1, self.n_)
+        next_values = self.target_net.value(next_state, next_actions.detach()).contiguous().view(-1, self.n_)
+        returns = th.zeros((batch_size, self.n_), dtype=th.float).to(self.device)
         assert values_pol.size() == next_values.size()
         assert returns.size() == values.size()
         done = done.to(self.device)
-        returns = rewards - self.multiplier.detach() * cost + self.args.gamma * (1 - done) * next_values.detach() 
-        cost_returns = cost + self.args.cost_gamma * (1-done) * next_costs.detach()
-        deltas, cost_deltas = returns - values, cost_returns - costs
+        returns = rewards + self.args.gamma * (1 - done) * next_values.detach()
+        deltas = returns - values
         advantages = values_pol
         if self.args.normalize_advantages:
             advantages = self.batchnorm(advantages)
         policy_loss = - advantages
         policy_loss = policy_loss.mean()
-        value_loss = deltas.pow(2).mean() + cost_deltas.pow(2).mean()
-        lambda_loss = - ((cost_returns.detach() - self.upper_bound) * self.multiplier).mean()
-        return policy_loss, value_loss, action_out, lambda_loss
+        value_loss = deltas.pow(2).mean()
+        if self.args.predict_loss:
+            value_loss = (value_loss, self.get_predict_loss(state, actions, next_state))
+        return policy_loss, value_loss, action_out, None
 
-    def reset_multiplier(self):
-        self.multiplier = th.nn.Parameter(th.tensor(0.,device=self.device))
+    def get_predict_loss(self, obs, actions, next_obs):
+        embedding = self.value_dicts[0].encoder(obs) # (B,N,H)
+        pred = []
+        label = []
+        for i in range(self.n_):
+            pred.append(self.value_dicts[0].predict_voltage(embedding[:,i,:].squeeze(dim=1), actions, i))
+            label.append(next_obs[:,i,self.obs_position_list[i][0]:self.obs_position_list[i][1]].squeeze(dim=1))
+        pred = th.cat(pred,dim=-1)
+        label = th.cat(label,dim=-1)
+        pred_loss = nn.MSELoss()(pred,label)
+        return pred_loss
+        

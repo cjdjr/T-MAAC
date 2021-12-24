@@ -4,7 +4,8 @@ import numpy as np
 from utilities.util import select_action
 from models.model import Model
 from critics.mlp_critic import MLPCritic
-
+from critics.attention_critic import AttentionCritic
+from critics.transformer_critic import TransformerCritic
 
 
 class MADDPG(Model):
@@ -30,6 +31,11 @@ class MADDPG(Model):
             self.value_dicts = nn.ModuleList( [ MLPCritic(input_shape, output_shape, self.args, self.args.use_date) ] )
         else:
             self.value_dicts = nn.ModuleList( [ MLPCritic(input_shape, output_shape, self.args, self.args.use_date) for _ in range(self.n_) ] )
+        # if self.args.agent_id:
+        #     input_shape = (self.args.hid_size + self.act_dim) * self.n_ + self.n_
+        # else:
+        #     input_shape = (self.args.hid_size + self.act_dim) * self.n_
+        # self.value_dicts = nn.ModuleList( [ TransformerCritic(self.obs_dim, self.act_dim, input_shape, output_shape, self.args) ] )
 
     def construct_model(self):
         self.construct_value_net()
@@ -42,6 +48,7 @@ class MADDPG(Model):
         if self.args.use_date:
             date = obs[:,:,:self.args.date_dim]
             obs = obs[:,:,self.args.date_dim:]
+        # obs = self.value_dicts[0].encoder(obs)
         obs_repeat = obs.unsqueeze(1).repeat(1, self.n_, 1, 1) # shape = (b, n, n, o)
         obs_reshape = obs_repeat.contiguous().view(batch_size, self.n_, -1) # shape = (b, n, n*o)
         if self.args.use_date:
@@ -84,6 +91,19 @@ class MADDPG(Model):
 
         return values
 
+    # def value(self, obs, act):
+    #     # obs_shape = (b, n, o)
+    #     # act_shape = (b, n, a)
+    #     batch_size = obs.size(0)
+    #     # add agent id
+    #     agent_ids = th.eye(self.n_).unsqueeze(0).repeat(batch_size, 1, 1).to(self.device) # shape = (b, n, n)
+    #     if self.args.agent_id:
+    #         obs = th.cat( (obs, agent_ids), dim=-1 ) # shape = (b, n, o+n)
+    #     sa = (obs,act)
+    #     agents_rets = self.value_dicts[0](sa)
+    #     agents_rets = agents_rets[:,:,None].contiguous()
+    #     return agents_rets
+
     def get_actions(self, state, status, exploration, actions_avail, target=False, last_hid=None):
         target_policy = self.target_net.policy if self.args.target else self.policy
         if self.args.continuous:
@@ -108,7 +128,7 @@ class MADDPG(Model):
 
     def get_loss(self, batch):
         batch_size = len(batch.state)
-        state, actions, old_log_prob_a, old_values, old_next_values, rewards, next_state, done, last_step, actions_avail, last_hids, hids = self.unpack_data(batch)
+        state, actions, old_log_prob_a, old_values, old_next_values, rewards, cost, next_state, done, last_step, actions_avail, last_hids, hids = self.unpack_data(batch)
         _, actions_pol, log_prob_a, action_out, _ = self.get_actions(state, status='train', exploration=False, actions_avail=actions_avail, target=False, last_hid=last_hids)
         if self.args.double_q:
             _, next_actions, _, _, _ = self.get_actions(next_state, status='train', exploration=False, actions_avail=actions_avail, target=False, last_hid=hids)
@@ -129,4 +149,4 @@ class MADDPG(Model):
         policy_loss = - advantages
         policy_loss = policy_loss.mean()
         value_loss = deltas.pow(2).mean()
-        return policy_loss, value_loss, action_out
+        return policy_loss, value_loss, action_out, None
