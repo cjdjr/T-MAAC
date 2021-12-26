@@ -30,8 +30,12 @@ class PGTrainer(object):
             else:
                 self.replay_buffer = EpisodeReplayBuffer( int(self.args.replay_buffer_size) )
         self.env = env
-        self.policy_optimizer = optim.RMSprop( self.behaviour_net.policy_dicts.parameters(), lr=args.policy_lrate, alpha=0.99, eps=1e-5 )
-        self.value_optimizer = optim.RMSprop( self.behaviour_net.value_dicts.parameters(), lr=args.value_lrate, alpha=0.99, eps=1e-5 )
+        if self.args.encoder:
+            self.policy_optimizer = optim.RMSprop( [{'params': self.behaviour_net.policy_dicts.parameters()}, {'params': self.behaviour_net.encoder.parameters()}], lr=args.policy_lrate, alpha=0.99, eps=1e-5 )
+            self.value_optimizer = optim.RMSprop( [{'params': self.behaviour_net.value_dicts.parameters()}, {'params': self.behaviour_net.encoder.parameters()}], lr=args.value_lrate, alpha=0.99, eps=1e-5 )
+        else:
+            self.policy_optimizer = optim.RMSprop( self.behaviour_net.policy_dicts.parameters(), lr=args.policy_lrate, alpha=0.99, eps=1e-5 )
+            self.value_optimizer = optim.RMSprop( self.behaviour_net.value_dicts.parameters(), lr=args.value_lrate, alpha=0.99, eps=1e-5 ) 
         if self.args.mixer:
             self.mixer_optimizer = optim.RMSprop( self.behaviour_net.mixer.parameters(), lr=args.mixer_lrate, alpha=0.99, eps=1e-5 )
         if self.args.multiplier:
@@ -107,7 +111,6 @@ class PGTrainer(object):
             value_loss, pred_loss = value_loss
             stat['mean_train_pred_loss'] = pred_loss.clone().mean().item()
             value_loss = value_loss + pred_loss
-            
         self.value_optimizer.zero_grad()
         self.value_compute_grad(value_loss, False)
         param = self.value_optimizer.param_groups[0]['params']
@@ -131,7 +134,7 @@ class PGTrainer(object):
         self.lambda_optimizer.zero_grad()
         lambda_loss.backward()
         self.lambda_optimizer.step()
-        if self.behaviour_net.multiplier < 0:
+        if th.any(self.behaviour_net.multiplier<0):
             self.behaviour_net.reset_multiplier()
         stat['mean_train_lambda'] = self.behaviour_net.multiplier.detach().mean().item()
 
