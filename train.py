@@ -8,20 +8,22 @@ from models.model_registry import Model, Strategy
 from environments.var_voltage_control.voltage_control_env import VoltageControl
 from utilities.util import convert, dict2str
 from utilities.trainer import PGTrainer
-
+import wandb
 from transition.model import transition_model, transition_model_linear
 
 parser = argparse.ArgumentParser(description="Train rl agent.")
 parser.add_argument("--save-path", type=str, nargs="?", default="./", help="Please enter the directory of saving model.")
-parser.add_argument("--alg", type=str, nargs="?", default="safemaddpg", help="Please enter the alg name.")
+parser.add_argument("--alg", type=str, nargs="?", default="icsmaddpg", help="Please enter the alg name.")
 parser.add_argument("--env", type=str, nargs="?", default="var_voltage_control", help="Please enter the env name.")
 parser.add_argument("--alias", type=str, nargs="?", default="", help="Please enter the alias for exp control.")
 parser.add_argument("--mode", type=str, nargs="?", default="distributed", help="Please enter the mode: distributed or decentralised.")
-parser.add_argument("--scenario", type=str, nargs="?", default="case322_3min_final", help="Please input the valid name of an environment scenario.")
+parser.add_argument("--scenario", type=str, nargs="?", default="case33_3min_final", help="Please input the valid name of an environment scenario.")
 parser.add_argument("--voltage-barrier-type", type=str, nargs="?", default="l1", help="Please input the valid voltage barrier type: l1, courant_beltrami, l2, bowl or bump.")
 parser.add_argument("--season", type=str, nargs="?", default="all", help="all/summer/winter")
 parser.add_argument("--date-emb",  action='store_true')
-parser.add_argument("--safe", type=str, nargs="?", default="hard", help="none/hard/soft")
+parser.add_argument("--safe-trans",  action='store_true')
+parser.add_argument("--wandb",  action='store_true')
+parser.add_argument("--safe", type=str, nargs="?", default="none", help="none/hard/soft")
 parser.add_argument("--constraint_model_path", type=str, nargs="?", default="transition/case322_3min_final.lin_model")
 argv = parser.parse_args()
 
@@ -74,10 +76,16 @@ env = VoltageControl(env_config_dict)
 alg_config_dict["agent_num"] = env.get_num_of_agents()
 alg_config_dict["obs_size"] = env.get_obs_size()
 alg_config_dict["action_dim"] = env.get_total_actions()
+alg_config_dict["bus_num"] = env.get_num_of_buses()
+alg_config_dict["obs_position_list"] = env.get_obs_position_list()
+alg_config_dict["region_num"] = env.get_num_of_regions()
 
 if argv.date_emb:
     alg_config_dict['agent_type'] = "rnn_with_date"
     alg_config_dict['use_date'] = True
+
+if argv.safe_trans:
+    alg_config_dict['safe_trans'] = True
 
 constraint_model = None
 alg_config_dict['safe_filter'] = argv.safe
@@ -87,6 +95,17 @@ if argv.safe != 'none':
     constraint_model = transition_model_linear().to(device)
     constraint_model.load_state_dict(th.load(argv.constraint_model_path))
     
+if argv.wandb:
+    wandb.init(
+        project='mapdn',
+        entity="chelly",
+        name=log_name,
+        group='_'.join(log_name.split('_')[:-1]),
+    )
+    wandb.config.update(env_config_dict)
+    wandb.config.update(alg_config_dict)
+    
+
 
 args = convert(alg_config_dict)
 
@@ -137,7 +156,7 @@ with open(save_path + "tensorboard/" + log_name + "/log.txt", "w+") as file:
 for i in range(args.train_episodes_num):
     stat = {}
     train.run(stat, i)
-    train.logging(stat)
+    train.logging(stat, argv.wandb)
     if i%args.save_model_freq == args.save_model_freq-1:
         train.print_info(stat)
         th.save({"model_state_dict": train.behaviour_net.state_dict()}, save_path + "model_save/" + log_name + "/model.pt")
