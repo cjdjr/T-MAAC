@@ -9,8 +9,9 @@ from critics.mlp_critic import MLPCritic
 class ICSMADDPG(MADDPG):
 
     def __init__(self, args, target_net=None):
+        self.cs_num = args.region_num
         super(ICSMADDPG, self).__init__(args, target_net)
-        self.multiplier = th.nn.Parameter(th.tensor([args.init_lambda for _ in range(self.n_)],device=self.device))
+        self.multiplier = th.nn.Parameter(th.tensor([args.init_lambda for _ in range(self.cs_num)],device=self.device))
         self.upper_bound = args.upper_bound
 
     def construct_value_net(self):
@@ -24,10 +25,11 @@ class ICSMADDPG(MADDPG):
         output_shape = 1
         if self.args.shared_params:
             self.value_dicts = nn.ModuleList( [ MLPCritic(input_shape, output_shape, self.args, self.args.use_date) ] )
-            self.cost_dicts = nn.ModuleList( [ MLPCritic(input_shape, output_shape, self.args, self.args.use_date) ] )
+            # self.cost_dicts = nn.ModuleList( [ MLPCritic(input_shape + self.cs_num, output_shape, self.args, self.args.use_date)] )
+            self.cost_dicts = nn.ModuleList( [ MLPCritic(input_shape, output_shape, self.args, self.args.use_date) for _ in range(self.cs_num) ] )
         else:
             self.value_dicts = nn.ModuleList( [ MLPCritic(input_shape, output_shape, self.args, self.args.use_date) for _ in range(self.n_) ] )
-            self.cost_dicts = nn.ModuleList( [ MLPCritic(input_shape, output_shape, self.args, self.args.use_date) for _ in range(self.n_) ] )
+            self.cost_dicts = nn.ModuleList( [ MLPCritic(input_shape, output_shape, self.args, self.args.use_date) for _ in range(self.cs_num) ] )
 
     def value(self, obs, act):
         # obs_shape = (b, n, o)
@@ -67,11 +69,20 @@ class ICSMADDPG(MADDPG):
 
         if self.args.shared_params:
             agent_value = self.value_dicts[0]
-            agent_cost = self.cost_dicts[0]
             values, _ = agent_value(inputs, None)
-            costs, _ = agent_cost(inputs, None)
             values = values.contiguous().view(batch_size, self.n_, 1)
-            costs = costs.contiguous().view(batch_size, self.n_, 1)
+
+            # cost_input = inputs.unsqueeze(1).repeat(1,self.cs_num,1) # (b*n, s, n*o+n*a+n)
+            # cs_id = th.eye(self.cs_num).unsqueeze(0).repeat(batch_size*self.n_, 1, 1).to(self.device)
+            # cost_input = th.cat((cost_input,cs_id),dim=-1).view(batch_size*self.n_*self.cs_num, -1) # (b*n*s, n*o+n*a+n+s)
+            # agent_cost = self.cost_dicts[0]
+            # costs, _ = agent_cost(cost_input, None)
+            # costs = costs.contiguous().view(batch_size, self.n_, self.cs_num)
+            costs = []
+            for agent_cost in self.cost_dicts:
+                cost, _ = agent_cost(inputs, None)
+                costs.append(cost)
+            costs = th.cat(costs, dim=-1).view(batch_size, self.n_, self.cs_num) # (B, N, S)
         else:
             values = []
             costs = []
@@ -96,15 +107,15 @@ class ICSMADDPG(MADDPG):
         compose = self.value(state, actions_pol)
         values_pol, costs_pol = compose[0].contiguous().view(-1, self.n_), compose[1].contiguous().view(-1, self.n_)
         compose = self.value(state, actions)
-        values, costs = compose[0].contiguous().view(-1, self.n_), compose[1].contiguous().view(-1, self.n_)
+        values, costs = compose[0].contiguous().view(-1, self.n_), compose[1].contiguous().view(-1, self.n_, self.cs_num)
         compose = self.target_net.value(next_state, next_actions.detach())
-        next_values, next_costs = compose[0].contiguous().view(-1, self.n_), compose[1].contiguous().view(-1, self.n_)
-        returns, cost_returns = th.zeros((batch_size, self.n_), dtype=th.float).to(self.device), th.zeros((batch_size, self.n_), dtype=th.float).to(self.device)
+        next_values, next_costs = compose[0].contiguous().view(-1, self.n_), compose[1].contiguous().view(-1, self.n_, self.cs_num)
+        returns, cost_returns = th.zeros((batch_size, self.n_), dtype=th.float).to(self.device), th.zeros((batch_size, self.n_, self.cs_num), dtype=th.float).to(self.device)
         assert values_pol.size() == next_values.size()
         assert returns.size() == values.size()
         done = done.to(self.device)
-        returns = rewards - self.multiplier.detach() * cost + self.args.gamma * (1 - done) * next_values.detach() 
-        cost_returns = cost + self.args.cost_gamma * (1-done) * next_costs.detach()
+        returns = rewards - (self.multiplier.detach() * cost).sum(dim=-1) + self.args.gamma * (1 - done) * next_values.detach() 
+        cost_returns = cost + self.args.cost_gamma * (1-done).unsqueeze(dim=-1) * next_costs.detach()
         deltas, cost_deltas = returns - values, cost_returns - costs
         advantages = values_pol
         if self.args.normalize_advantages:
@@ -112,11 +123,11 @@ class ICSMADDPG(MADDPG):
         policy_loss = - advantages
         policy_loss = policy_loss.mean()
         value_loss = deltas.pow(2).mean() + cost_deltas.pow(2).mean()
-        lambda_loss = - ((cost_returns.detach() - self.upper_bound) * self.multiplier).mean()
+        lambda_loss = - ((cost_returns.detach() - self.upper_bound) * self.multiplier).mean(dim=(0,1)).sum()
         return policy_loss, value_loss, action_out, lambda_loss
 
     def reset_multiplier(self):
-        for i in range(self.n_):
+        for i in range(self.cs_num):
             if self.multiplier[i] < 0:
                 with th.no_grad():
                     self.multiplier[i] = 0.
