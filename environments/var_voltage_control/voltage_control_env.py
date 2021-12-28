@@ -61,7 +61,9 @@ class VoltageControl(MultiAgentEnv):
         self.voltage_weight = getattr(args, "voltage_weight", 1.0)
         self.q_weight = getattr(args, "q_weight", 0.1)
         self.line_weight = getattr(args, "line_weight", None)
+        self.total_voltage_weight = getattr(args, "total_voltage_weight", None)
         self.dv_dq_weight = getattr(args, "dq_dv_weight", None)
+        self.independ_reward = getattr(args, "independ_reward", False)
 
         # define constraints and uncertainty
         self.v_upper = getattr(args, "v_upper", 1.05)
@@ -70,7 +72,7 @@ class VoltageControl(MultiAgentEnv):
         self.reactive_demand_std = self.reactive_demand_data.values.std(axis=0) / 100.0
         self.pv_std = self.pv_data.values.std(axis=0) / 100.0
         self._set_reactive_power_boundary()
-
+        self.pv_index = self.base_powergrid.sgen['bus'].sort_index().to_numpy(copy=True)
         if self.args.season == 'all':
             self.start_day_func = self._select_start_day
         elif self.args.season == 'summer':
@@ -93,7 +95,10 @@ class VoltageControl(MultiAgentEnv):
         elif self.args.mode == 'centralised':
             self.n_actions = len(self.base_powergrid.sgen)
             self.n_agents = 1
-    
+
+        self.region = np.unique(self.base_powergrid.bus['zone'].to_numpy(copy=True))
+        self.region = np.append(self.region, 'all')
+        self._cal_mask()
         agents_obs, state = self.reset()
 
         self.obs_size = agents_obs[0].shape[0]
@@ -113,7 +118,10 @@ class VoltageControl(MultiAgentEnv):
         """
         # reset the time step, cumulative rewards and obs history
         self.steps = 1
-        self.sum_rewards = 0
+        if self.independ_reward:
+            self.sum_rewards = np.zeros(self.n_agents)
+        else:
+            self.sum_rewards = 0
         if self.history > 1:
             self.obs_history = {i: [] for i in range(self.n_agents)}
 
@@ -157,7 +165,10 @@ class VoltageControl(MultiAgentEnv):
         """
         # reset the time step, cumulative rewards and obs history
         self.steps = 1
-        self.sum_rewards = 0
+        if self.independ_reward:
+            self.sum_rewards = np.zeros(self.n_agents)
+        else:
+            self.sum_rewards = 0
         if self.history > 1:
             self.obs_history = {i: [] for i in range(self.n_agents)}
 
@@ -212,6 +223,8 @@ class VoltageControl(MultiAgentEnv):
             # keep q_loss
             info["destroy"] = 1.
             info["totally_controllable_ratio"] = 0.
+            info["percentage_of_v_out_of_control"] = 1.
+            info["percentage_of_v_out_of_control_region"] = np.ones(len(self.region))
             info["q_loss"] = q_loss
 
         # set the pv and demand for the next time step
@@ -225,10 +238,13 @@ class VoltageControl(MultiAgentEnv):
         else:
             terminated = False
         if terminated:
-            print (f"Episode terminated at time: {self.steps} with return: {self.sum_rewards:2.4f}.")
+            print (f"Episode terminated at time: {self.steps} with return: {np.mean(self.sum_rewards):2.4f}.")
 
         return reward, terminated, info
 
+    def set_episode_limit(self, max_steps):
+        self.episode_limit = max_steps
+        
     def get_state(self):
         """return the global state for the power system
            the default state: voltage, active power of generators, bus state, load active power, load reactive power
@@ -266,8 +282,11 @@ class VoltageControl(MultiAgentEnv):
             obs_zone_dict = dict()
             zone_list = list()
             obs_len_list = list()
+            # obs_position_dict = dict()
+            # self.obs_position_list = list()
             for i in range(len(self.powergrid.sgen)):
                 obs = list()
+                # position = list()
                 zone_buses, zone, pv, q, sgen_bus = clusters[f"sgen{i}"]
                 zone_list.append(zone)
                 if not( zone in obs_zone_dict.keys() ):
@@ -289,14 +308,19 @@ class VoltageControl(MultiAgentEnv):
                         obs.append(pv)
                     if "reactive" in self.state_space:
                         obs.append(q)
+                    # position.append(len(obs))
                     if "vm_pu" in self.state_space:
                         obs += list(zone_buses.loc[:, "vm_pu"].to_numpy(copy=True))
                     if "va_degree" in self.state_space:
                         # transform the voltage phase to radian
                         obs += list(zone_buses.loc[:, "va_degree"].to_numpy(copy=True) * np.pi / 180)
+                    # position.append(len(obs))
 
                     obs_zone_dict[zone] = np.array(obs)
+                    # obs_position_dict[zone] = position.copy()
                 obs_len_list.append(obs_zone_dict[zone].shape[0])
+                # self.obs_position_list.append(obs_position_dict[zone])
+            # self.obs_position_list = np.array(self.obs_position_list)
             agents_obs = list()
             obs_max_len = max(obs_len_list)
             for zone in zone_list:
@@ -365,6 +389,9 @@ class VoltageControl(MultiAgentEnv):
         """
         return self.state_size
 
+    def get_obs_position_list(self):
+        return self.obs_position_list
+
     def get_action(self):
         """return the action according to a uniform distribution over [action_lower, action_upper)
         """
@@ -398,10 +425,16 @@ class VoltageControl(MultiAgentEnv):
         elif self.args.mode == "centralised":
             return [1 for _ in range(self.n_actions)]
 
+    def get_num_of_buses(self):
+        return len(self.base_powergrid.bus)
+
     def get_num_of_agents(self):
         """return the number of agents
         """
         return self.n_agents
+
+    def get_num_of_regions(self):
+        return len(self.region)
 
     def _get_voltage(self):
         return self.powergrid.res_bus["vm_pu"].sort_index().to_numpy(copy=True)
@@ -653,6 +686,15 @@ class VoltageControl(MultiAgentEnv):
         info["percentage_of_higher_than_upper_v"] = np.sum(v > self.v_upper) / v.shape[0]
         info["totally_controllable_ratio"] = 0. if percent_of_v_out_of_control > 1e-3 else 1.
 
+        out_of_control = []
+        for zone in self.region:
+            if zone == 'all':
+                out_of_control.append(percent_of_v_out_of_control)
+            else:
+                zone_v = self.powergrid.res_bus["vm_pu"][self.powergrid.bus['zone'] == zone].to_numpy(copy=True)
+                out_of_control.append(( np.sum(zone_v < self.v_lower) + np.sum(zone_v > self.v_upper) ) / zone_v.shape[0])
+        info["percentage_of_v_out_of_control_region"] = np.array(out_of_control)
+
         # voltage violation
         v_ref = 0.5 * (self.v_lower + self.v_upper)
         info["average_voltage_deviation"] = np.mean( np.abs( v - v_ref ) )
@@ -667,12 +709,18 @@ class VoltageControl(MultiAgentEnv):
 
         # reactive power (q) loss
         q = self.powergrid.res_sgen["q_mvar"].sort_index().to_numpy(copy=True)
-        q_loss = np.mean(np.abs(q))
-        info["q_loss"] = q_loss
+        if self.independ_reward:
+            q_loss = np.abs(q)
+        else:
+            q_loss = np.mean(np.abs(q))
+        info["q_loss"] = np.mean(q_loss)
 
         # reward function
         ## voltage barrier function
-        v_loss = np.mean(self.voltage_barrier.step(v)) * self.voltage_weight
+        if self.independ_reward:
+            v_loss = self.voltage_barrier.step(v)[self.pv_index] * self.voltage_weight
+        else:
+            v_loss = np.mean(self.voltage_barrier.step(v)) * self.voltage_weight
         ## add soft constraint for line or q
         if self.line_weight != None:
             loss = avg_line_loss * self.line_weight + v_loss
@@ -681,12 +729,12 @@ class VoltageControl(MultiAgentEnv):
         else:
             raise NotImplementedError("Please at least give one weight, either q_weight or line_weight.")
         reward = -loss
-
+        if self.total_voltage_weight != None:
+            reward += self.total_voltage_weight * info["totally_controllable_ratio"]
         # record destroy
         info["destroy"] = 0.0
 
         return reward, info
-
     def _get_res_bus_v(self):
         v = self.powergrid.res_bus["vm_pu"].sort_index().to_numpy(copy=True)
         return v
@@ -776,3 +824,25 @@ class VoltageControl(MultiAgentEnv):
                             cpos_volt=1.0
                         )
         fig.write_image("environments/var_voltage_control/plot_save/pf_res_plot.jpeg")
+
+    def _cal_mask(self):
+        common = ['all','main'] + ['zone2','zone12','zone13']
+        block = []
+        block.append(common+['zone'+str(i) for i in range(1,10)])
+        block.append(common+['zone'+str(i) for i in range(10,16)])
+        block.append(common+['zone'+str(i) for i in range(16,23)])
+        if len(self.base_powergrid.bus) == 322:
+            self.mask = np.zeros((self.n_agents,len(self.region)))
+            for i in range(self.n_agents):
+                zone = self.base_powergrid.sgen['name'][i]
+                for name in block:
+                    if zone in name:
+                        idx = [self.region[i] in name for i in range(len(self.region))]
+                        # idx = [self.region[i] == 'all' for i in range(len(self.region))]
+                        self.mask[i] = np.logical_or(self.mask[i], idx)
+        else:
+            self.mask = np.ones((self.n_agents,len(self.region)))
+        # self.mask = np.ones((self.n_agents,len(self.region)))
+
+    def get_constraint_mask(self):
+        return self.mask
