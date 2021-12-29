@@ -67,7 +67,7 @@ class TransformerCritic(nn.Module):
         self.args = args
         self.predict_dcim = predict_dim
         
-        self.init_projection_layer = nn.Linear(obs_size, args.hid_size)
+        self.init_projection_layer = nn.Linear(obs_size + action_dim, args.hid_size)
         self.attn_layers = nn.ModuleList([
             EncoderLayer(embedding_dim=self.hidden_dim, n_heads=self.attend_heads)
             for _ in range(self.n_layers)
@@ -91,8 +91,8 @@ class TransformerCritic(nn.Module):
             self.hid_activation = nn.Tanh()
 
 
-    def encoder(self, obs):
-        x = self.init_projection_layer(obs)
+    def encoder(self, sa):
+        x = self.init_projection_layer(sa)
         for layer in self.attn_layers:
             x = layer(x)
         return x
@@ -104,7 +104,11 @@ class TransformerCritic(nn.Module):
         x = self.pred_fc2[agent_id](x)
         return x
 
-    def forward(self, x):
+    def forward(self, inputs):
+        sa, id = inputs # (b,n,o+a), (b,n)
+        batch_size = sa.shape[0]
+        x = self.encoder(sa).view(batch_size, -1)    # (b,n*h)
+        x = th.cat((x,id),dim=-1) # (b, n*h + n)
         x = self.fc1(x)
         if self.args.layernorm:
             x = self.layernorm(x)
