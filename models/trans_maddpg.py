@@ -9,14 +9,14 @@ from critics.transformer_critic import TransformerCritic
 class TransMADDPG(MADDPG):
     def __init__(self, args, target_net=None):
         self.obs_position_list = args.obs_position_list
-        self.predict_dim = self.obs_position_list[:,1]-self.obs_position_list[:,0]
+        # self.predict_dim = self.obs_position_list[:,1]-self.obs_position_list[:,0]
         super(TransMADDPG, self).__init__(args, target_net)
 
     def construct_value_net(self):
         if self.args.agent_id:
-            input_shape = (self.args.hid_size + self.act_dim) * self.n_ + self.n_
+            input_shape = (self.args.hid_size) * self.n_ + self.n_
         else:
-            input_shape = (self.args.hid_size + self.act_dim) * self.n_
+            input_shape = (self.args.hid_size) * self.n_
         if self.args.use_date:
             input_shape -= self.args.date_dim * (self.n_ - 1 )
         output_shape = 1
@@ -32,17 +32,14 @@ class TransMADDPG(MADDPG):
         if self.args.use_date:
             date = obs[:,:,:self.args.date_dim]
             obs = obs[:,:,self.args.date_dim:]
-        obs = self.value_dicts[0].encoder(obs)
         obs_repeat = obs.unsqueeze(1).repeat(1, self.n_, 1, 1) # shape = (b, n, n, o)
-        obs_reshape = obs_repeat.contiguous().view(batch_size, self.n_, -1) # shape = (b, n, n*o)
+        obs_reshape = obs_repeat.contiguous()
         if self.args.use_date:
             obs_reshape = th.cat((date, obs_reshape), dim=-1)
 
         # add agent id
         agent_ids = th.eye(self.n_).unsqueeze(0).repeat(batch_size, 1, 1).to(self.device) # shape = (b, n, n)
-        if self.args.agent_id:
-            obs_reshape = th.cat( (obs_reshape, agent_ids), dim=-1 ) # shape = (b, n, n*o+n)
-        
+
         # make up inputs
         act_repeat = act.unsqueeze(1).repeat(1, self.n_, 1, 1) # shape = (b, n, n, a)
         act_mask_others = agent_ids.unsqueeze(-1) # shape = (b, n, n, 1)
@@ -54,17 +51,17 @@ class TransMADDPG(MADDPG):
         act_repeat = act_others.detach() + act_i # shape = (b, n, n, a)
 
         if self.args.shared_params:
-            obs_reshape = obs_reshape.contiguous().view( batch_size*self.n_, -1 ) # shape = (b*n, n*o+n)
-            act_reshape = act_repeat.contiguous().view( batch_size*self.n_, -1 ) # shape = (b*n, n*a)
+            obs_reshape = obs_reshape.contiguous().view( batch_size*self.n_, self.n_, -1 ) # shape = (b*n, n, o)
+            act_reshape = act_repeat.contiguous().view( batch_size*self.n_, self.n_, -1) # shape = (b*n, n, a)
         else:
             obs_reshape = obs_reshape.contiguous().view( batch_size, self.n_, -1 ) # shape = (b, n, n*o+n)
             act_reshape = act_repeat.contiguous().view( batch_size, self.n_, -1 ) # shape = (b, n, n*a)
 
-        inputs = th.cat( (obs_reshape, act_reshape), dim=-1 )
+        inputs = th.cat( (obs_reshape, act_reshape), dim=-1 )   # (b*n, n, o+a)
 
         if self.args.shared_params:
             agent_value = self.value_dicts[0]
-            values, _ = agent_value(inputs)
+            values, _ = agent_value((inputs,agent_ids.view(batch_size*self.n_,-1)))
             values = values.contiguous().view(batch_size, self.n_, 1)
         else:
             values = []
