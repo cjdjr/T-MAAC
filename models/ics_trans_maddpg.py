@@ -19,12 +19,15 @@ class ICSTRANSMADDPG(Model):
 
         self.obs_bus_dim = args.obs_bus_dim
         self.obs_bus_num = np.max(args.obs_bus_num)
+        self.obs_mask = th.zeros(self.n_, self.obs_bus_num).to(self.device)
+        for i in range(self.n_):
+            self.obs_mask[i,args.obs_bus_num[i]:] = -np.inf
         self.agent2region = args.agent2region
         self.region_num = np.max(self.agent2region) + 1
         self.actor_encoder = nn.ModuleList()
         self.critic_encoder = nn.ModuleList()
         self.actor_encoder.append(TransformerEncoder(self.obs_bus_num, self.obs_bus_dim + self.region_num, args))
-        self.critic_encoder.append(TransformerEncoder(self.obs_bus_num, self.obs_bus_dim + self.region_num, args))
+        # self.critic_encoder.append(TransformerEncoder(self.obs_bus_num, self.obs_bus_dim + self.region_num, args))
         self.construct_model()
         self.apply(self.init_weights)
         if target_net != None:
@@ -35,8 +38,9 @@ class ICSTRANSMADDPG(Model):
 
     def construct_policy_net(self):
         if self.args.agent_id:
-            input_shape = self.obs_bus_num * self.args.out_hid_size + self.n_
+            # input_shape = self.obs_bus_num * self.args.out_hid_size + self.n_
             # input_shape = self.obs_dim + self.n_
+            input_shape = self.args.enc_hid_size + self.n_
         else:
             input_shape = self.obs_bus_num * self.args.out_hid_size
 
@@ -68,8 +72,9 @@ class ICSTRANSMADDPG(Model):
 
     def construct_value_net(self):
         if self.args.agent_id:
-            input_shape = (self.obs_bus_num * self.args.out_hid_size + self.act_dim) * self.n_ + self.n_
-            # input_shape = (self.obs_dim + self.act_dim) * self.n_ + self.n_
+            # input_shape = (self.obs_bus_num * self.args.out_hid_size + self.act_dim) * self.n_ + self.n_
+            # input_shape = (self.args.enc_hid_size + self.act_dim) * self.n_ + self.n_
+            input_shape = (self.obs_dim + self.act_dim) * self.n_ + self.n_
         else:
             input_shape = (self.obs_bus_num * self.args.out_hid_size + self.act_dim) * self.n_
         if self.args.use_date:
@@ -79,6 +84,8 @@ class ICSTRANSMADDPG(Model):
         if self.args.shared_params:
             self.value_dicts = nn.ModuleList( [ MLPCritic(input_shape, output_shape, self.args, self.args.use_date) ] )
             self.cost_dicts = nn.ModuleList( [ MLPCritic(input_shape, output_shape, self.args, self.args.use_date) for _ in range(self.cs_num) ] )
+            # input_shape += self.cs_num
+            # self.cost_dicts = nn.ModuleList( [ MLPCritic(input_shape, output_shape, self.args, self.args.use_date)] )
         else:
             self.value_dicts = nn.ModuleList( [ MLPCritic(input_shape, output_shape, self.args, self.args.use_date) for _ in range(self.n_) ] )
 
@@ -91,7 +98,8 @@ class ICSTRANSMADDPG(Model):
         obs = raw_obs.view(batch_size*self.n_, self.obs_bus_dim, self.obs_bus_num).transpose(1,2).contiguous() # (b*n, self.obs_bus_num, self.obs_bus_dim)
         zone_id = F.one_hot(th.tensor(self.agent2region)).to(self.device).float()
         zone_id = zone_id[None,:,None,:].contiguous().repeat(batch_size, 1, self.obs_bus_num, 1).view(batch_size*self.n_, self.obs_bus_num, self.region_num)
-        obs = encoder[0](th.cat((obs,zone_id),dim=-1)).view(batch_size, self.n_, -1).contiguous()
+        mask = self.obs_mask[None,:,None,:].repeat(batch_size,1,1,1).view(batch_size*self.n_,1,-1).contiguous() # (b*n, 1, obs_bus_num)
+        obs = encoder[0](th.cat((obs,zone_id),dim=-1), mask).view(batch_size, self.n_, -1).contiguous()
         return obs
 
     def policy(self, raw_obs, schedule=None, last_act=None, last_hid=None, info={}, stat={}):
@@ -140,8 +148,8 @@ class ICSTRANSMADDPG(Model):
         # obs_shape = (b, n, o)
         # act_shape = (b, n, a)
         batch_size = raw_obs.size(0)
-        obs = self.encode(self.actor_encoder, raw_obs)
-        # obs = raw_obs
+        # obs = self.encode(self.actor_encoder, raw_obs)
+        obs = raw_obs
         obs_repeat = obs.unsqueeze(1).repeat(1, self.n_, 1, 1) # shape = (b, n, n, o)
         obs_reshape = obs_repeat.contiguous().view(batch_size, self.n_, -1) # shape = (b, n, n*o)
 
@@ -169,6 +177,14 @@ class ICSTRANSMADDPG(Model):
 
         inputs = th.cat( (obs_reshape, act_reshape), dim=-1 )
 
+        # raw_obs_repeat = raw_obs.unsqueeze(1).repeat(1, self.n_, 1, 1) # shape = (b, n, n, o)
+        # raw_obs_reshape = raw_obs_repeat.contiguous().view(batch_size, self.n_, -1) # shape = (b, n, n*o)
+        # if self.args.agent_id:
+        #     raw_obs_reshape = th.cat( (raw_obs_reshape, agent_ids), dim=-1 ) # shape = (b, n, n*o+n)
+        # if self.args.shared_params:
+        #     raw_obs_reshape = raw_obs_reshape.contiguous().view( batch_size*self.n_, -1 ) # shape = (b*n, n*o+n)
+        # raw_inputs = th.cat( (raw_obs_reshape, act_reshape), dim=-1 )
+
         if self.args.shared_params:
             agent_value = self.value_dicts[0]
             values, _ = agent_value(inputs, None)
@@ -178,6 +194,12 @@ class ICSTRANSMADDPG(Model):
                 cost, _ = agent_cost(inputs, None)
                 costs.append(cost)
             costs = th.cat(costs, dim=-1).view(batch_size, self.n_, self.cs_num) # (B, N, S)
+            # cost_input = inputs.unsqueeze(1).repeat(1,self.cs_num,1) # (b*n, s, n*o+n*a+n)
+            # cs_id = th.eye(self.cs_num).unsqueeze(0).repeat(batch_size*self.n_, 1, 1).to(self.device)
+            # cost_input = th.cat((cost_input,cs_id),dim=-1).view(batch_size*self.n_*self.cs_num, -1) # (b*n*s, n*o+n*a+n+s)
+            # agent_cost = self.cost_dicts[0]
+            # costs, _ = agent_cost(cost_input, None)
+            # costs = costs.contiguous().view(batch_size, self.n_, self.cs_num)
         else:
             values = []
             for i, agent_value in enumerate(self.value_dicts):

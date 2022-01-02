@@ -3,14 +3,14 @@ alg: "icstransmaddpg"
 alg_args:
     "policy_lrate": 1.0e-4
     "value_lrate": 1.0e-4
-    "encoder_lrate": 5.0e-5
+    "encoder_lrate": 1.0e-4
     "gaussian_policy": False
     "action_enforcebound": True
     "encoder": True
-    "enc_hid_size": 64
-    "out_hid_size": 8
+    "enc_hid_size": 128
+    # "out_hid_size": 8
     "attend_heads": 4
-    "n_layers": 2
+    "n_layers": 3
 
     "multiplier": True
     "init_lambda": 0.
@@ -18,3 +18,5 @@ alg_args:
     "upper_bound": 0.
     "cost_gamma": 0.9
     "split_constraint": True
+
+    # "fixed_policy_std": 1.0

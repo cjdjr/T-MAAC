@@ -67,9 +67,9 @@ class TransformerEncoder(nn.Module):
         self.predict_dcim = predict_dim
         self.obs_num = obs_num
         self.obs_dim = obs_dim
-        
         self.init_projection_layer = nn.Linear(obs_dim, args.enc_hid_size)
-        self.final_projection_layer = nn.Linear(args.enc_hid_size, args.out_hid_size)
+        # self.final_projection_layer = nn.Linear(args.enc_hid_size, args.out_hid_size)
+        self.Wq = nn.Linear(self.hidden_dim, self.hidden_dim, bias=False)
         self.attn_layers = nn.ModuleList([
             EncoderLayer(embedding_dim=self.hidden_dim, n_heads=self.attend_heads)
             for _ in range(self.n_layers)
@@ -90,15 +90,20 @@ class TransformerEncoder(nn.Module):
             self.hid_activation = nn.Tanh()
 
 
-    def forward(self, obs):
+    def forward(self, obs, mask=None):
         # obs : (b*n, self.obs_num, self.obs_dim)
-        # obs = padding_obs[:,:self.obs_num * self.obs_dim].contiguous().view(-1, self.obs_num, self.obs_dim)
+        # mask : (b*n, 1, n)
         x = self.init_projection_layer(obs)
         for layer in self.attn_layers:
-            x = layer(x)
-        x = self.final_projection_layer(x)  # (b, self.obs_num, out_hid_size)
+            x = layer(x, mask)
+        # x = self.final_projection_layer(x)  # (b, self.obs_num, out_hid_size)
         # x = x.mean(dim=1)
-        return x.view(-1, self.obs_num * self.out_hidden_dim)
+        global_info = x.mean(dim=1, keepdim=True)
+        glimpse_q = self.Wq(global_info)
+        score = th.matmul(glimpse_q, x.transpose(1,2)) / np.sqrt(self.hidden_dim)
+        score = F.softmax(score+mask, dim=2)
+        final_embedding = th.matmul(score, x)
+        return final_embedding.squeeze(dim=1)
 
     def predict_voltage(self, enc, act, agent_id):
         B = enc.shape[0]
