@@ -281,13 +281,16 @@ class VoltageControl(MultiAgentEnv):
         if self.args.mode == "distributed":
             obs_zone_dict = dict()
             zone_list = list()
+            self.obs_dim = 7
             obs_len_list = list()
             # obs_position_dict = dict()
             # self.obs_position_list = list()
+            self.obs_bus_num = []
             for i in range(len(self.powergrid.sgen)):
                 obs = list()
                 # position = list()
-                zone_buses, zone, pv, q, sgen_bus = clusters[f"sgen{i}"]
+                zone_buses, zone, pv, q, sgen_bus, pv_flag = clusters[f"sgen{i}"]
+                self.obs_bus_num.append(len(zone_buses))
                 zone_list.append(zone)
                 if not( zone in obs_zone_dict.keys() ):
                     if "date" in self.state_space:
@@ -304,16 +307,24 @@ class VoltageControl(MultiAgentEnv):
                         copy_zone_buses.loc[sgen_bus]["q_mvar"] -= q
                         obs += list(copy_zone_buses.loc[:, "p_mw"].to_numpy(copy=True))
                         obs += list(copy_zone_buses.loc[:, "q_mvar"].to_numpy(copy=True))
-                    if "pv" in self.state_space:
-                        obs.append(pv)
-                    if "reactive" in self.state_space:
-                        obs.append(q)
+                    # if "pv" in self.state_space:
+                    #     obs.append(pv)
+                    # if "reactive" in self.state_space:
+                    #     obs.append(q)
                     # position.append(len(obs))
                     if "vm_pu" in self.state_space:
                         obs += list(zone_buses.loc[:, "vm_pu"].to_numpy(copy=True))
                     if "va_degree" in self.state_space:
                         # transform the voltage phase to radian
                         obs += list(zone_buses.loc[:, "va_degree"].to_numpy(copy=True) * np.pi / 180)
+                    pv_list = np.zeros(len(zone_buses))
+                    q_list = np.zeros(len(zone_buses))
+                    idx = list(zone_buses.index).index(sgen_bus)
+                    pv_list[idx] = pv
+                    q_list[idx] = q
+                    obs += list(pv_flag)
+                    obs += list(pv_list)
+                    obs += list(q_list)
                     # position.append(len(obs))
 
                     obs_zone_dict[zone] = np.array(obs)
@@ -321,6 +332,7 @@ class VoltageControl(MultiAgentEnv):
                 obs_len_list.append(obs_zone_dict[zone].shape[0])
                 # self.obs_position_list.append(obs_position_dict[zone])
             # self.obs_position_list = np.array(self.obs_position_list)
+            self.obs_bus_num = np.array(self.obs_bus_num)
             agents_obs = list()
             obs_max_len = max(obs_len_list)
             for zone in zone_list:
@@ -383,6 +395,12 @@ class VoltageControl(MultiAgentEnv):
         """return the observation size
         """
         return self.obs_size
+    
+    def get_obs_bus_num(self):
+        return self.obs_bus_num
+
+    def get_obs_dim(self):
+        return self.obs_dim
 
     def get_state_size(self):
         """return the state size
@@ -626,7 +644,8 @@ class VoltageControl(MultiAgentEnv):
                 pv = self.powergrid.sgen["p_mw"][i]
                 q = self.powergrid.sgen["q_mvar"][i]
                 zone_res_buses = self.powergrid.res_bus.sort_index().loc[self.powergrid.bus["zone"]==zone]
-                clusters[f"sgen{i}"] = (zone_res_buses, zone, pv, q, sgen_bus)
+                pv_flag = [idx in list(self.powergrid.sgen['bus']) for idx in zone_res_buses.index]
+                clusters[f"sgen{i}"] = (zone_res_buses, zone, pv, q, sgen_bus, pv_flag)
         elif self.args.mode == "decentralised":
             for i in range(self.n_agents):
                 zone_res_buses = self.powergrid.res_bus.sort_index().loc[self.powergrid.bus["zone"]==f"zone{i+1}"]
@@ -692,7 +711,18 @@ class VoltageControl(MultiAgentEnv):
                 out_of_control.append(percent_of_v_out_of_control)
             else:
                 zone_v = self.powergrid.res_bus["vm_pu"][self.powergrid.bus['zone'] == zone].to_numpy(copy=True)
+                # idx = self.powergrid.sgen[self.powergrid.sgen['name'] == zone]['bus']
+                # zone_v = self.powergrid.res_bus["vm_pu"][idx].to_numpy(copy=True)
+                # if len(zone_v) == 0:
+                #     zone_v = self.powergrid.res_bus["vm_pu"][self.powergrid.bus['zone'] == zone].to_numpy(copy=True)
                 out_of_control.append(( np.sum(zone_v < self.v_lower) + np.sum(zone_v > self.v_upper) ) / zone_v.shape[0])
+                # if self.args.control != 'all' and self.args.control == zone:
+                #     v = zone_v.copy()
+                #     info["percentage_of_v_out_of_control"] = out_of_control[-1]
+                #     info["percentage_of_lower_than_lower_v"] = np.sum(v < self.v_lower) / v.shape[0]
+                #     info["percentage_of_higher_than_upper_v"] = np.sum(v > self.v_upper) / v.shape[0]
+                #     info["totally_controllable_ratio"] = 0. if percent_of_v_out_of_control > 1e-3 else 1.
+                    
         info["percentage_of_v_out_of_control_region"] = np.array(out_of_control)
 
         # voltage violation
@@ -826,7 +856,7 @@ class VoltageControl(MultiAgentEnv):
         fig.write_image("environments/var_voltage_control/plot_save/pf_res_plot.jpeg")
 
     def _cal_mask(self):
-        common = ['all','main'] + ['zone2','zone12','zone13']
+        common = ['all','main']
         block = []
         block.append(common+['zone'+str(i) for i in range(1,10)])
         block.append(common+['zone'+str(i) for i in range(10,16)])
@@ -842,7 +872,11 @@ class VoltageControl(MultiAgentEnv):
                         self.mask[i] = np.logical_or(self.mask[i], idx)
         else:
             self.mask = np.ones((self.n_agents,len(self.region)))
-        # self.mask = np.ones((self.n_agents,len(self.region)))
+        self.mask = np.ones((self.n_agents,len(self.region)))
 
     def get_constraint_mask(self):
         return self.mask
+
+    def get_agent2region(self):
+        region = list(self.region)
+        return np.array([region.index(zone_name)-1 for zone_name in self.base_powergrid.sgen['name']])
