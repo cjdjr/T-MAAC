@@ -31,8 +31,8 @@ class PGTrainer(object):
                 self.replay_buffer = EpisodeReplayBuffer( int(self.args.replay_buffer_size) )
         self.env = env
         if self.args.encoder:
-            self.policy_optimizer = optim.RMSprop( [{'params': self.behaviour_net.policy_dicts.parameters()}, {'params': self.behaviour_net.encoder.parameters()}], lr=args.policy_lrate, alpha=0.99, eps=1e-5 )
-            self.value_optimizer = optim.RMSprop( [{'params': self.behaviour_net.value_dicts.parameters()}, {'params': self.behaviour_net.encoder.parameters()}], lr=args.value_lrate, alpha=0.99, eps=1e-5 )
+            self.policy_optimizer = optim.RMSprop( [{'params': self.behaviour_net.policy_dicts.parameters(), 'lr':args.policy_lrate}, {'params': self.behaviour_net.actor_encoder.parameters(), 'lr':args.encoder_lrate}], alpha=0.99, eps=1e-5 )
+            self.value_optimizer = optim.RMSprop( [{'params': self.behaviour_net.value_dicts.parameters(), 'lr':args.value_lrate}, {'params': self.behaviour_net.actor_encoder.parameters(), 'lr':args.encoder_lrate}], alpha=0.99, eps=1e-5 )
         else:
             self.policy_optimizer = optim.RMSprop( self.behaviour_net.policy_dicts.parameters(), lr=args.policy_lrate, alpha=0.99, eps=1e-5 )
             self.value_optimizer = optim.RMSprop( self.behaviour_net.value_dicts.parameters(), lr=args.value_lrate, alpha=0.99, eps=1e-5 ) 
@@ -139,10 +139,10 @@ class PGTrainer(object):
         stat['mean_train_lambda'] = self.behaviour_net.multiplier.detach().mean().item()
 
     def run(self, stat, episode):
-        self.behaviour_net.train()
+        # self.behaviour_net.train()
         self.behaviour_net.train_process(stat, self)
         if (episode%self.args.eval_freq == self.args.eval_freq-1) or (episode == 0):
-            self.behaviour_net.eval()
+            # self.behaviour_net.eval()
             self.behaviour_net.evaluation(stat, self)
 
     def logging(self, stat, use_wandb=False):

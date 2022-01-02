@@ -224,8 +224,9 @@ class Model(nn.Module):
         for t in range(self.args.max_steps):
             # current state, action, value
             state_ = prep_obs(state).to(self.device).contiguous().view(1, self.n_, self.obs_dim)
-            action, action_pol, log_prob_a, _, hid = self.get_actions(state_, status='train', exploration=True, actions_avail=th.tensor(trainer.env.get_avail_actions()), target=False, last_hid=last_hid)
-            value = self.value(state_, action_pol)
+            with th.no_grad():
+                action, action_pol, log_prob_a, _, hid = self.get_actions(state_, status='train', exploration=True, actions_avail=th.tensor(trainer.env.get_avail_actions()), target=False, last_hid=last_hid)
+                value = self.value(state_, action_pol)
             if self.args.multiplier:
                 value, cost = value
             _, actual = translate_action(self.args, action, trainer.env)
@@ -255,12 +256,16 @@ class Model(nn.Module):
                 reward_repeat = reward 
             else:
                 reward_repeat = [reward]*trainer.env.get_num_of_agents()
-            out_of_control = [info['percentage_of_v_out_of_control']] * trainer.env.get_num_of_agents()
+            if self.args.split_constraint:
+                out_of_control = [info['percentage_of_v_out_of_control_region'] for _ in range(self.n_)]
+            else:
+                out_of_control = [info['percentage_of_v_out_of_control']] * trainer.env.get_num_of_agents()
             # next state, action, value
             next_state = trainer.env.get_obs()
             next_state_ = prep_obs(next_state).to(self.device).contiguous().view(1, self.n_, self.obs_dim)
-            _, next_action_pol, _, _, _ = self.get_actions(next_state_, status='train', exploration=True, actions_avail=th.tensor(trainer.env.get_avail_actions()), target=False, last_hid=hid)
-            next_value = self.value(next_state_, next_action_pol)
+            with th.no_grad():
+                _, next_action_pol, _, _, _ = self.get_actions(next_state_, status='train', exploration=True, actions_avail=th.tensor(trainer.env.get_avail_actions()), target=False, last_hid=hid)
+                next_value = self.value(next_state_, next_action_pol)
             if self.args.multiplier:
                 next_value, next_cost = next_value
             # store trajectory
@@ -286,10 +291,11 @@ class Model(nn.Module):
                 else:
                     episode.append(trans)
             for k, v in info.items():
-                if 'mean_train_'+k not in stat_train.keys():
-                    stat_train['mean_train_' + k] = v
-                else:
-                    stat_train['mean_train_' + k] += v
+                if  type(v) is not np.ndarray:
+                    if 'mean_train_'+k not in stat_train.keys():
+                        stat_train['mean_train_' + k] = v
+                    else:
+                        stat_train['mean_train_' + k] += v
             stat_train['mean_train_reward'] += np.mean(reward)
             if not self.args.safe_trans or info["totally_controllable_ratio"] == 1.:
                 trainer.steps += 1
@@ -313,64 +319,78 @@ class Model(nn.Module):
         stat_test = {}
         stat_test_min_max = {'max_test_constraint_error':-1.0, 'min_test_constraint_error':1.0}
         constraint_model = trainer.constraint_model
-        test_data=  [
-                        529,
-                        893,
-                        152,
-                        160,
-                        530,
-                        902,
-                        903,
-                        905,
-                        520,
-                        526,
+        # test_data=  [
+        #                 529,
+        #                 893,
+        #                 152,
+        #                 160,
+        #                 530,
+        #                 902,
+        #                 903,
+        #                 905,
+        #                 520,
+        #                 526,
+        #             ]
+        test_data= [
+                    46,
+                    454,
+                    836,
+                    868,
+                    903,
+                    931,
+                    948,
+                    621,
+                    646,
+                    332,
                     ]
         trainer.env.set_episode_limit(self.args.max_eval_steps)
-        for _ in range(num_eval_episodes):
-            stat_test_epi = {'mean_test_reward': 0, 'mean_test_constraint_error':0}
-            # state, global_state = trainer.env.reset()
-            state, global_state = trainer.env.manual_reset(test_data[_], 23, 2)
-            # init hidden states
-            last_hid = self.policy_dicts[0].init_hidden()
-            for t in range(self.args.max_eval_steps):
-                state_ = prep_obs(state).to(self.device).contiguous().view(1, self.n_, self.obs_dim)
-                action, _, _, _, hid = self.get_actions(state_, status='test', exploration=False, actions_avail=th.tensor(trainer.env.get_avail_actions()), target=False, last_hid=last_hid)
-                _, actual = translate_action(self.args, action, trainer.env)
-                reward, done, info = trainer.env.step(actual)
-                done_ = done or t==self.args.max_eval_steps-1
-                next_state = trainer.env.get_obs()
-                if constraint_model is not None:
-                    with th.no_grad():
-                        q = trainer.env.now_q
-                        state = trainer.env.get_state()
-                        label_v = state[-2*len(trainer.env.base_powergrid.bus):-len(trainer.env.base_powergrid.bus)]
-                        state = th.tensor(state).to(th.float32).to(self.device)[None,:]
-                        q = th.tensor(q).to(th.float32).to(self.device)[None,:]
-                        pred_v = constraint_model(th.cat((state,q),dim=1)).detach().squeeze().cpu().numpy()
-                        stat_test_epi['mean_test_constraint_error'] += np.mean(np.abs(pred_v - label_v))
-                        stat_test_min_max['max_test_constraint_error'] = max(stat_test_min_max['max_test_constraint_error'], np.max(pred_v - label_v))
-                        stat_test_min_max['min_test_constraint_error'] = min(stat_test_min_max['min_test_constraint_error'], np.min(pred_v - label_v))
+        with th.no_grad():
+            for _ in range(num_eval_episodes):
+                stat_test_epi = {'mean_test_reward': 0, 'mean_test_constraint_error':0}
+                # state, global_state = trainer.env.reset()
+                state, global_state = trainer.env.manual_reset(test_data[_], 23, 2)
+                # init hidden states
+                last_hid = self.policy_dicts[0].init_hidden()
+                for t in range(self.args.max_eval_steps):
+                    state_ = prep_obs(state).to(self.device).contiguous().view(1, self.n_, self.obs_dim)
+                    action, _, _, _, hid = self.get_actions(state_, status='test', exploration=False, actions_avail=th.tensor(trainer.env.get_avail_actions()), target=False, last_hid=last_hid)
+                    _, actual = translate_action(self.args, action, trainer.env)
+                    reward, done, info = trainer.env.step(actual)
+                    done_ = done or t==self.args.max_eval_steps-1
+                    next_state = trainer.env.get_obs()
+                    if constraint_model is not None:
+                        with th.no_grad():
+                            q = trainer.env.now_q
+                            state = trainer.env.get_state()
+                            label_v = state[-2*len(trainer.env.base_powergrid.bus):-len(trainer.env.base_powergrid.bus)]
+                            state = th.tensor(state).to(th.float32).to(self.device)[None,:]
+                            q = th.tensor(q).to(th.float32).to(self.device)[None,:]
+                            pred_v = constraint_model(th.cat((state,q),dim=1)).detach().squeeze().cpu().numpy()
+                            stat_test_epi['mean_test_constraint_error'] += np.mean(np.abs(pred_v - label_v))
+                            stat_test_min_max['max_test_constraint_error'] = max(stat_test_min_max['max_test_constraint_error'], np.max(pred_v - label_v))
+                            stat_test_min_max['min_test_constraint_error'] = min(stat_test_min_max['min_test_constraint_error'], np.min(pred_v - label_v))
 
-                if isinstance(done, list): done = np.sum(done)
-                for k, v in info.items():
-                    if 'mean_test_' + k not in stat_test_epi.keys():
-                        stat_test_epi['mean_test_' + k] = v
+                    if isinstance(done, list): done = np.sum(done)
+                    for k, v in info.items():
+                        if  type(v) is not np.ndarray:
+                            if 'mean_test_' + k not in stat_test_epi.keys():
+                                stat_test_epi['mean_test_' + k] = v
+                            else:
+                                stat_test_epi['mean_test_' + k] += v
+                    stat_test_epi['mean_test_reward'] += np.mean(reward)
+                    if done_:
+                        break
+                    # set the next state
+                    state = next_state
+                    # set the next last_hid
+                    last_hid = hid
+                for k, v in stat_test_epi.items():
+                    stat_test_epi[k] = v / float(t+1)
+                for k, v in stat_test_epi.items():
+                    if k not in stat_test.keys():
+                        stat_test[k] = v
                     else:
-                        stat_test_epi['mean_test_' + k] += v
-                stat_test_epi['mean_test_reward'] += np.mean(reward)
-                if done_:
-                    break
-                # set the next state
-                state = next_state
-                # set the next last_hid
-                last_hid = hid
-            for k, v in stat_test_epi.items():
-                stat_test_epi[k] = v / float(t+1)
-            for k, v in stat_test_epi.items():
-                if k not in stat_test.keys():
-                    stat_test[k] = v
-                else:
-                    stat_test[k] += v
+                        stat_test[k] += v
         for k, v in stat_test.items():
             stat_test[k] = v / float(num_eval_episodes)
         stat.update(stat_test)

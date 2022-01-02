@@ -112,7 +112,7 @@ class MATD3(Model):
 
     def get_loss(self, batch):
         batch_size = len(batch.state)
-        state, actions, old_log_prob_a, old_values, old_next_values, rewards, next_state, done, last_step, actions_avail, last_hids, hids = self.unpack_data(batch)
+        state, actions, old_log_prob_a, old_values, old_next_values, rewards, cost, next_state, done, last_step, actions_avail, last_hids, hids = self.unpack_data(batch)
         _, actions_pol, log_prob_a, action_out, _ = self.get_actions(state, status='train', exploration=False, actions_avail=actions_avail, target=False, last_hid=last_hids)
         # _, next_actions, _, _, _ = self.get_actions(next_state, status='train', exploration=True, actions_avail=actions_avail, target=True, last_hid=hids)
         if self.args.double_q:
@@ -145,4 +145,4 @@ class MATD3(Model):
         policy_loss = - advantages
         policy_loss = policy_loss.mean()
         value_loss = 0.5 * ( deltas1.pow(2).mean() + deltas2.pow(2).mean() )
-        return policy_loss, value_loss, action_out
+        return policy_loss, value_loss, action_out, None
