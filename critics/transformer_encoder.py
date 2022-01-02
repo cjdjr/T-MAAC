@@ -36,10 +36,10 @@ class EncoderLayer(nn.Module):
         self.Wv = nn.Linear(embedding_dim, embedding_dim, bias=False)
         self.multi_head_combine = nn.Linear(embedding_dim, embedding_dim)
         self.feed_forward = nn.Sequential(
-            nn.Linear(embedding_dim, embedding_dim * 4), nn.ReLU(),
-            nn.Linear(embedding_dim * 4, embedding_dim))
-        self.norm1 = nn.BatchNorm1d(embedding_dim)
-        self.norm2 = nn.BatchNorm1d(embedding_dim)
+            nn.Linear(embedding_dim, embedding_dim * 2), nn.ReLU(),
+            nn.Linear(embedding_dim * 2, embedding_dim))
+        self.norm1 = nn.LayerNorm(embedding_dim)
+        self.norm2 = nn.LayerNorm(embedding_dim)
 
     def forward(self, x, mask=None):
         q = make_heads(self.Wq(x), self.n_heads)
@@ -54,26 +54,28 @@ class EncoderLayer(nn.Module):
 
 class TransformerEncoder(nn.Module):
     # sa_sizes, hidden_dim=32, norm_in=True, attend_heads=1
-    def __init__(self, obs_size, action_dim, args, predict_dim=None):
+    def __init__(self, obs_num, obs_dim, args, predict_dim=None):
         super(TransformerEncoder, self).__init__()
-        self.hidden_dim = args.hid_size
+        self.hidden_dim = args.enc_hid_size
+        self.out_hidden_dim = args.out_hid_size
         self.attend_heads = args.attend_heads
         assert (self.hidden_dim % self.attend_heads) == 0
-        self.obs_size, self.action_dim = obs_size, action_dim
         self.n_layers = args.n_layers
-        self.nagents = args.agent_num
         self.continuous = args.continuous
         self.attend_heads = args.attend_heads
         self.args = args
         self.predict_dcim = predict_dim
+        self.obs_num = obs_num
+        self.obs_dim = obs_dim
         
-        self.init_projection_layer = nn.Linear(obs_size, args.hid_size)
+        self.init_projection_layer = nn.Linear(obs_dim, args.enc_hid_size)
+        self.final_projection_layer = nn.Linear(args.enc_hid_size, args.out_hid_size)
         self.attn_layers = nn.ModuleList([
             EncoderLayer(embedding_dim=self.hidden_dim, n_heads=self.attend_heads)
             for _ in range(self.n_layers)
         ])
         if args.layernorm:
-            self.layernorm = nn.LayerNorm(args.hid_size)
+            self.layernorm = nn.LayerNorm(args.enc_hid_size)
 
         if predict_dim is not None:
             self.pred_fc1 = nn.ModuleList()
@@ -89,10 +91,14 @@ class TransformerEncoder(nn.Module):
 
 
     def forward(self, obs):
+        # obs : (b*n, self.obs_num, self.obs_dim)
+        # obs = padding_obs[:,:self.obs_num * self.obs_dim].contiguous().view(-1, self.obs_num, self.obs_dim)
         x = self.init_projection_layer(obs)
         for layer in self.attn_layers:
             x = layer(x)
-        return x
+        x = self.final_projection_layer(x)  # (b, self.obs_num, out_hid_size)
+        # x = x.mean(dim=1)
+        return x.view(-1, self.obs_num * self.out_hidden_dim)
 
     def predict_voltage(self, enc, act, agent_id):
         B = enc.shape[0]
