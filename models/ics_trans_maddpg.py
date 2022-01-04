@@ -19,6 +19,7 @@ class ICSTRANSMADDPG(Model):
 
         self.obs_bus_dim = args.obs_bus_dim
         self.obs_bus_num = np.max(args.obs_bus_num)
+        self.agent_index_in_obs = args.agent_index_in_obs
         self.obs_mask = th.zeros(self.n_, self.obs_bus_num).to(self.device)
         for i in range(self.n_):
             self.obs_mask[i,args.obs_bus_num[i]:] = -np.inf
@@ -39,8 +40,8 @@ class ICSTRANSMADDPG(Model):
     def construct_policy_net(self):
         if self.args.agent_id:
             # input_shape = self.obs_bus_num * self.args.out_hid_size + self.n_
-            # input_shape = self.obs_dim + self.n_
-            input_shape = self.args.enc_hid_size + self.n_
+            input_shape = self.obs_dim + self.n_
+            # input_shape = self.args.enc_hid_size + self.n_
         else:
             input_shape = self.obs_bus_num * self.args.out_hid_size
 
@@ -62,13 +63,16 @@ class ICSTRANSMADDPG(Model):
             else:
                 from agents.rnn_agent_dateemb import RNNAgent
             Agent = RNNAgent
+        elif self.args.agent_type == 'transformer':
+            from agents.transformer_agent import TransformerAgent
+            Agent = TransformerAgent
         else:
             NotImplementedError()
             
         if self.args.shared_params:
-            self.policy_dicts = nn.ModuleList([ Agent(input_shape, self.args) ])
+            self.policy_dicts = nn.ModuleList([ Agent(self.obs_bus_num, self.obs_bus_dim + self.region_num, self.args) ])
         else:
-            self.policy_dicts = nn.ModuleList([ Agent(input_shape, self.args) for _ in range(self.n_) ])
+            self.policy_dicts = nn.ModuleList([ Agent(self.obs_bus_num, self.obs_bus_dim + self.region_num, self.args) for _ in range(self.n_) ])
 
     def construct_value_net(self):
         if self.args.agent_id:
@@ -95,29 +99,68 @@ class ICSTRANSMADDPG(Model):
 
     def encode(self, encoder, raw_obs):
         batch_size = raw_obs.size(0)
-        obs = raw_obs.view(batch_size*self.n_, self.obs_bus_dim, self.obs_bus_num).transpose(1,2).contiguous() # (b*n, self.obs_bus_num, self.obs_bus_dim)
+        obs = raw_obs.view(batch_size*self.n_, self.obs_bus_num, self.obs_bus_dim).contiguous() # (b*n, self.obs_bus_num, self.obs_bus_dim)
         zone_id = F.one_hot(th.tensor(self.agent2region)).to(self.device).float()
         zone_id = zone_id[None,:,None,:].contiguous().repeat(batch_size, 1, self.obs_bus_num, 1).view(batch_size*self.n_, self.obs_bus_num, self.region_num)
         mask = self.obs_mask[None,:,None,:].repeat(batch_size,1,1,1).view(batch_size*self.n_,1,-1).contiguous() # (b*n, 1, obs_bus_num)
         obs = encoder[0](th.cat((obs,zone_id),dim=-1), mask).view(batch_size, self.n_, -1).contiguous()
         return obs
 
+    # def policy(self, raw_obs, schedule=None, last_act=None, last_hid=None, info={}, stat={}):
+    #     # obs_shape = (b, n, o)
+    #     batch_size = raw_obs.size(0)
+    #     # obs = self.encode(self.actor_encoder, raw_obs)
+    #     obs = raw_obs
+
+    #     # add agent id
+    #     if self.args.agent_id:
+    #         agent_ids = th.eye(self.n_).unsqueeze(0).repeat(batch_size, 1, 1).to(self.device) # shape = (b, n, n)
+    #         obs = th.cat( (obs, agent_ids), dim=-1 ) # shape = (b, n, n+o)
+
+    #     if self.args.shared_params:
+    #         # print (f"This is the shape of last_hids: {last_hid.size()}")
+    #         obs = obs.contiguous().view(batch_size*self.n_, -1) # shape = (b*n, n+o/o)
+    #         agent_policy = self.policy_dicts[0]
+    #         means, log_stds, hiddens = agent_policy(obs, last_hid)
+    #         # hiddens = th.stack(hiddens, dim=1)
+    #         means = means.contiguous().view(batch_size, self.n_, -1)
+    #         hiddens = hiddens.contiguous().view(batch_size, self.n_, -1)
+    #         if self.args.gaussian_policy:
+    #             log_stds = log_stds.contiguous().view(batch_size, self.n_, -1)
+    #         else:
+    #             stds = th.ones_like(means).to(self.device) * self.args.fixed_policy_std
+    #             log_stds = th.log(stds)
+    #     else:
+    #         means = []
+    #         hiddens = []
+    #         log_stds = []
+    #         for i, agent_policy in enumerate(self.policy_dicts):
+    #             mean, log_std, hidden = agent_policy(obs[:, i, :], last_hid[:, i, :])
+    #             means.append(mean)
+    #             hiddens.append(hidden)
+    #             log_stds.append(log_std)
+    #         means = th.stack(means, dim=1)
+    #         hiddens = th.stack(hiddens, dim=1)
+    #         if self.args.gaussian_policy:
+    #             log_stds = th.stack(log_stds, dim=1)
+    #         else:
+    #             log_stds = th.zeros_like(means).to(self.device)
+
+    #     return means, log_stds, hiddens
+
     def policy(self, raw_obs, schedule=None, last_act=None, last_hid=None, info={}, stat={}):
         # obs_shape = (b, n, o)
         batch_size = raw_obs.size(0)
-        obs = self.encode(self.actor_encoder, raw_obs)
-        # obs = raw_obs
-
-        # add agent id
-        if self.args.agent_id:
-            agent_ids = th.eye(self.n_).unsqueeze(0).repeat(batch_size, 1, 1).to(self.device) # shape = (b, n, n)
-            obs = th.cat( (obs, agent_ids), dim=-1 ) # shape = (b, n, n+o)
 
         if self.args.shared_params:
-            # print (f"This is the shape of last_hids: {last_hid.size()}")
-            obs = obs.contiguous().view(batch_size*self.n_, -1) # shape = (b*n, n+o/o)
+            obs = raw_obs.view(batch_size*self.n_, self.obs_bus_num, self.obs_bus_dim).contiguous() # (b*n, self.obs_bus_num, self.obs_bus_dim)
+            zone_id = F.one_hot(th.tensor(self.agent2region)).to(self.device).float()
+            zone_id = zone_id[None,:,None,:].contiguous().repeat(batch_size, 1, self.obs_bus_num, 1).view(batch_size*self.n_, self.obs_bus_num, self.region_num)
+            mask = self.obs_mask[None,:,None,:].repeat(batch_size,1,1,1).view(batch_size*self.n_,1,-1).contiguous() # (b*n, 1, obs_bus_num)
+            mask = th.cat((mask, th.zeros(batch_size*self.n_, 1, 1).float().to(self.device)),dim = -1) # (b*n, 1, obs_bus_num +1 ) for hidden_state
+            agent_index = th.tensor(self.agent_index_in_obs)[None,:,None].repeat(batch_size, 1, 1).view(batch_size*self.n_, 1).contiguous().to(self.device)
             agent_policy = self.policy_dicts[0]
-            means, log_stds, hiddens = agent_policy(obs, last_hid)
+            means, log_stds, hiddens = agent_policy(th.cat((obs,zone_id),dim=-1), last_hid, agent_index, mask)
             # hiddens = th.stack(hiddens, dim=1)
             means = means.contiguous().view(batch_size, self.n_, -1)
             hiddens = hiddens.contiguous().view(batch_size, self.n_, -1)
@@ -127,20 +170,7 @@ class ICSTRANSMADDPG(Model):
                 stds = th.ones_like(means).to(self.device) * self.args.fixed_policy_std
                 log_stds = th.log(stds)
         else:
-            means = []
-            hiddens = []
-            log_stds = []
-            for i, agent_policy in enumerate(self.policy_dicts):
-                mean, log_std, hidden = agent_policy(obs[:, i, :], last_hid[:, i, :])
-                means.append(mean)
-                hiddens.append(hidden)
-                log_stds.append(log_std)
-            means = th.stack(means, dim=1)
-            hiddens = th.stack(hiddens, dim=1)
-            if self.args.gaussian_policy:
-                log_stds = th.stack(log_stds, dim=1)
-            else:
-                log_stds = th.zeros_like(means).to(self.device)
+            NotImplementedError()
 
         return means, log_stds, hiddens
 
