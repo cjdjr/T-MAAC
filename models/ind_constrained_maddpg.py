@@ -115,7 +115,7 @@ class ICSMADDPG(MADDPG):
         assert values_pol.size() == next_values.size()
         assert returns.size() == values.size()
         done = done.to(self.device)
-        returns = rewards - (self.multiplier.detach() * (costs.detach() * self.cs_mask)).sum(dim=-1) + self.args.gamma * (1 - done) * next_values.detach() 
+        returns = rewards - (self.multiplier.detach() * (cost* self.cs_mask)).sum(dim=-1) + self.args.gamma * (1 - done) * next_values.detach() 
         cost_returns = (cost + self.args.cost_gamma * (1-done).unsqueeze(dim=-1) * next_costs.detach()) * self.cs_mask
         deltas, cost_deltas = returns - values, (cost_returns - costs) * self.cs_mask
         advantages = values_pol

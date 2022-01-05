@@ -106,7 +106,7 @@ class CSMADDPG(MADDPG):
         assert values_pol.size() == next_values.size()
         assert returns.size() == values.size()
         done = done.to(self.device)
-        returns = rewards - self.multiplier.detach() * costs.detach() + self.args.gamma * (1 - done) * next_values.detach() 
+        returns = rewards - self.multiplier.detach() * cost + self.args.gamma * (1 - done) * next_values.detach() 
         cost_returns = cost + self.args.cost_gamma * (1-done) * next_costs.detach()
         deltas, cost_deltas = returns - values, cost_returns - costs
         advantages = values_pol
