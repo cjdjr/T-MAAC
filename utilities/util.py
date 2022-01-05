@@ -134,6 +134,17 @@ def translate_action(args, action, env):
         actual = [act.detach().squeeze().cpu().numpy() for act in th.unbind(action, 1)]
         return action, actual
 
+# for safemaddpg
+def rev_translate_action(args, action, env):
+    if args.continuous:
+        cp_action = action[None,:,None].copy()
+        low = args.action_bias - args.action_scale
+        high = args.action_bias + args.action_scale
+        cp_action = (cp_action-low)/(high-low)*2-1
+        return cp_action
+    else:
+        raise NotImplementedError()
+
 def prep_obs(state=[]):
     state = np.array(state)
     # for single transition -> batch_size=1

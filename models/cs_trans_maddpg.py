@@ -42,9 +42,9 @@ class CSTRANSMADDPG(Model):
         else:
             NotImplementedError()
         if self.args.shared_params:
-            self.policy_dicts = nn.ModuleList([ Agent(self.encoder, self.args) ])
+            self.policy_dicts = nn.ModuleList([ Agent(self.args) ])
         else:
-            self.policy_dicts = nn.ModuleList([ Agent(self.encoder, self.args) for _ in range(self.n_) ])
+            self.policy_dicts = nn.ModuleList([ Agent(self.args) for _ in range(self.n_) ])
 
     def construct_value_net(self):
         if self.args.encoder:
@@ -68,6 +68,26 @@ class CSTRANSMADDPG(Model):
         self.construct_value_net()
         self.construct_policy_net()
 
+    def update_target(self):
+        for name, param in self.target_net.policy_dicts.state_dict().items():
+            update_params = (1 - self.args.target_lr) * param + self.args.target_lr * self.policy_dicts.state_dict()[name]
+            self.target_net.policy_dicts.state_dict()[name].copy_(update_params)
+        for name, param in self.target_net.value_dicts.state_dict().items():
+            update_params = (1 - self.args.target_lr) * param + self.args.target_lr * self.value_dicts.state_dict()[name]
+            self.target_net.value_dicts.state_dict()[name].copy_(update_params)
+        if self.args.mixer:
+            for name, param in self.target_net.mixer.state_dict().items():
+                update_params = (1 - self.args.target_lr) * param + self.args.target_lr * self.mixer.state_dict()[name]
+                self.target_net.mixer.state_dict()[name].copy_(update_params)
+        if self.args.encoder:
+            for name, param in self.target_net.encoder.state_dict().items():
+                update_params = (1 - self.args.target_lr) * param + self.args.target_lr * self.encoder.state_dict()[name]
+                self.target_net.encoder.state_dict()[name].copy_(update_params)
+        if self.args.multiplier:
+            for name, param in self.target_net.cost_dicts.state_dict().items():
+                update_params = (1 - self.args.target_lr) * param + self.args.target_lr * self.cost_dicts.state_dict()[name]
+                self.target_net.cost_dicts.state_dict()[name].copy_(update_params)
+
     def encode(self, raw_obs, raw_act, merge_act = False):
         # obs_shape = (b, n, o)
         # act_shape = (b, n, a)
@@ -76,9 +96,10 @@ class CSTRANSMADDPG(Model):
         obs = raw_obs.view(batch_size*self.n_, self.obs_bus_num, self.obs_bus_dim).contiguous() # (b*n, self.obs_bus_num, self.obs_bus_dim)
         if merge_act:
             act = raw_act.view(batch_size*self.n_, -1).contiguous()
-            agent_index = th.tensor(self.agent_index_in_obs)[None,:].repeat(batch_size, 1).view(batch_size*self.n_)
-            for i in range(batch_size*self.n_):
-                obs[i][agent_index[i]][self.q_index] = act[i]
+            agent_index = F.one_hot(th.tensor(self.agent_index_in_obs)[None,:].repeat(batch_size, 1).view(batch_size*self.n_)).to(self.device)
+            # for i in range(batch_size*self.n_):
+            #     obs[i][agent_index[i]][self.q_index] = act[i]
+            obs[:,:,self.q_index] = (1 - agent_index) * obs[:,:,self.q_index] + agent_index * act
 
         zone_id = F.one_hot(th.tensor(self.agent2region)).to(self.device).float()
         zone_id = zone_id[None,:,None,:].contiguous().repeat(batch_size, 1, self.obs_bus_num, 1).view(batch_size*self.n_, self.obs_bus_num, self.region_num)
@@ -97,10 +118,12 @@ class CSTRANSMADDPG(Model):
             zone_id = F.one_hot(th.tensor(self.agent2region)).to(self.device).float()
             zone_id = zone_id[None,:,None,:].contiguous().repeat(batch_size, 1, self.obs_bus_num, 1).view(batch_size*self.n_, self.obs_bus_num, self.region_num)
             mask = self.obs_mask[None,:,None,:].repeat(batch_size,1,1,1).view(batch_size*self.n_,1,-1).contiguous() # (b*n, 1, obs_bus_num)
-            mask = th.cat((mask, th.zeros(batch_size*self.n_, 1, 1).float().to(self.device)),dim = -1) # (b*n, 1, obs_bus_num +1 ) for hidden_state
+            # mask = th.cat((mask, th.zeros(batch_size*self.n_, 1, 1).float().to(self.device)),dim = -1) # (b*n, 1, obs_bus_num +1 ) for hidden_state
             agent_index = th.tensor(self.agent_index_in_obs)[None,:,None].repeat(batch_size, 1, 1).view(batch_size*self.n_, 1).contiguous().to(self.device)
+            obs = th.cat((obs,zone_id),dim=-1)
+            enc_obs, _ = self.encoder(obs, None, agent_index, mask)
             agent_policy = self.policy_dicts[0]
-            means, log_stds, hiddens = agent_policy(th.cat((obs,zone_id),dim=-1), last_hid, agent_index, mask)
+            means, log_stds, hiddens = agent_policy(enc_obs, last_hid)
             # hiddens = th.stack(hiddens, dim=1)
             means = means.contiguous().view(batch_size, self.n_, -1)
             hiddens = hiddens.contiguous().view(batch_size, self.n_, -1)
@@ -220,7 +243,7 @@ class CSTRANSMADDPG(Model):
         assert values_pol.size() == next_values.size()
         assert returns.size() == values.size()
         done = done.to(self.device)
-        returns = rewards - self.multiplier.detach() * cost + self.args.gamma * (1 - done) * next_values.detach() 
+        returns = rewards - self.multiplier.detach() * costs + self.args.gamma * (1 - done) * next_values.detach() 
         cost_returns = cost + self.args.cost_gamma * (1-done) * next_costs.detach()
         deltas, cost_deltas = returns - values, cost_returns - costs
         advantages = values_pol

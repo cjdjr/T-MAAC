@@ -279,10 +279,11 @@ class VoltageControl(MultiAgentEnv):
         clusters = self._get_clusters_info()
 
         if self.args.mode == "distributed":
-            obs_zone_dict = dict()
+            obs_zone_dict = list()
             zone_list = list()
             self.obs_dim = 7
             obs_len_list = list()
+            agent_index_in_obs = list()
             # obs_position_dict = dict()
             # self.obs_position_list = list()
             self.obs_bus_num = []
@@ -292,53 +293,53 @@ class VoltageControl(MultiAgentEnv):
                 zone_buses, zone, pv, q, sgen_bus, pv_flag = clusters[f"sgen{i}"]
                 self.obs_bus_num.append(len(zone_buses))
                 zone_list.append(zone)
-                if not( zone in obs_zone_dict.keys() ):
-                    if "date" in self.state_space:
-                        idx = self.start_idx + self.steps - 1
-                        obs.append(self.pv_data.index[idx].month)
-                        # obs.append(self.pv_data.index[idx].day)
-                        obs.append(self.pv_data.index[idx].weekday())
-                        # obs.append(self.pv_data.index[idx].hour)
-                        # obs.append(self.pv_data.index[idx].minute)
+                agent_index_in_obs.append(list(zone_buses.index).index(sgen_bus))
+                
+                if "date" in self.state_space:
+                    idx = self.start_idx + self.steps - 1
+                    obs.append(self.pv_data.index[idx].month)
+                    # obs.append(self.pv_data.index[idx].day)
+                    obs.append(self.pv_data.index[idx].weekday())
+                    # obs.append(self.pv_data.index[idx].hour)
+                    # obs.append(self.pv_data.index[idx].minute)
 
-                    if "demand" in self.state_space:
-                        copy_zone_buses = copy.deepcopy(zone_buses)
-                        copy_zone_buses.loc[sgen_bus]["p_mw"] -= pv
-                        copy_zone_buses.loc[sgen_bus]["q_mvar"] -= q
-                        obs += list(copy_zone_buses.loc[:, "p_mw"].to_numpy(copy=True))
-                        obs += list(copy_zone_buses.loc[:, "q_mvar"].to_numpy(copy=True))
-                    # if "pv" in self.state_space:
-                    #     obs.append(pv)
-                    # if "reactive" in self.state_space:
-                    #     obs.append(q)
-                    # position.append(len(obs))
-                    if "vm_pu" in self.state_space:
-                        obs += list(zone_buses.loc[:, "vm_pu"].to_numpy(copy=True))
-                    if "va_degree" in self.state_space:
-                        # transform the voltage phase to radian
-                        obs += list(zone_buses.loc[:, "va_degree"].to_numpy(copy=True) * np.pi / 180)
-                    pv_list = np.zeros(len(zone_buses))
-                    q_list = np.zeros(len(zone_buses))
-                    idx = list(zone_buses.index).index(sgen_bus)
-                    pv_list[idx] = pv
-                    q_list[idx] = q
-                    obs += list(pv_flag)
-                    obs += list(pv_list)
-                    obs += list(q_list)
-                    # position.append(len(obs))
-
-                    obs_zone_dict[zone] = np.array(obs)
-                    # obs_position_dict[zone] = position.copy()
-                obs_len_list.append(obs_zone_dict[zone].shape[0])
+                if "demand" in self.state_space:
+                    copy_zone_buses = copy.deepcopy(zone_buses)
+                    copy_zone_buses.loc[sgen_bus]["p_mw"] -= pv
+                    copy_zone_buses.loc[sgen_bus]["q_mvar"] -= q
+                    obs += list(copy_zone_buses.loc[:, "p_mw"].to_numpy(copy=True))
+                    obs += list(copy_zone_buses.loc[:, "q_mvar"].to_numpy(copy=True))
+                # if "pv" in self.state_space:
+                #     obs.append(pv)
+                # if "reactive" in self.state_space:
+                #     obs.append(q)
+                # position.append(len(obs))
+                if "vm_pu" in self.state_space:
+                    obs += list(zone_buses.loc[:, "vm_pu"].to_numpy(copy=True))
+                if "va_degree" in self.state_space:
+                    # transform the voltage phase to radian
+                    obs += list(zone_buses.loc[:, "va_degree"].to_numpy(copy=True) * np.pi / 180)
+                pv_list = np.zeros(len(zone_buses))
+                q_list = np.zeros(len(zone_buses))
+                idx = list(zone_buses.index).index(sgen_bus)
+                pv_list[idx] = pv
+                q_list[idx] = q
+                obs += list(pv_flag)
+                obs += list(pv_list)
+                obs += list(q_list)
+                # position.append(len(obs))
+                obs_zone_dict.append(np.array(obs).reshape(self.obs_dim, -1).transpose().reshape(-1))
+                # obs_position_dict[zone] = position.copy()
+                obs_len_list.append(len(obs))
                 # self.obs_position_list.append(obs_position_dict[zone])
             # self.obs_position_list = np.array(self.obs_position_list)
             self.obs_bus_num = np.array(self.obs_bus_num)
+            self.agent_index_in_obs = np.array(agent_index_in_obs)
             agents_obs = list()
             obs_max_len = max(obs_len_list)
-            for zone in zone_list:
-                obs_zone = obs_zone_dict[zone]
-                pad_obs_zone = np.concatenate( [obs_zone, np.zeros(obs_max_len - obs_zone.shape[0])], axis=0 )
-                agents_obs.append(pad_obs_zone)
+            for obs in obs_zone_dict:
+                pad_obs = np.concatenate( [obs, np.zeros(obs_max_len - obs.shape[0])], axis=0 )
+                agents_obs.append(pad_obs)
         elif self.args.mode == "decentralised":
             obs_len_list = list()
             zone_obs_list = list()
@@ -880,3 +881,6 @@ class VoltageControl(MultiAgentEnv):
     def get_agent2region(self):
         region = list(self.region)
         return np.array([region.index(zone_name)-1 for zone_name in self.base_powergrid.sgen['name']])
+
+    def get_agent_index_in_obs(self):
+        return self.agent_index_in_obs 

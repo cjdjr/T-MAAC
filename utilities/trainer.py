@@ -1,3 +1,4 @@
+from typing_extensions import ParamSpecArgs
 import numpy as np
 import torch as th
 from torch import optim
@@ -31,15 +32,21 @@ class PGTrainer(object):
                 self.replay_buffer = EpisodeReplayBuffer( int(self.args.replay_buffer_size) )
         self.env = env
         if self.args.encoder:
-            self.policy_optimizer = optim.RMSprop( [{'params': self.behaviour_net.policy_dicts.parameters(), 'lr':args.policy_lrate}, {'params': self.behaviour_net.actor_encoder.parameters(), 'lr':args.encoder_lrate}], alpha=0.99, eps=1e-5 )
-            self.value_optimizer = optim.RMSprop( [{'params': self.behaviour_net.value_dicts.parameters(), 'lr':args.value_lrate}, {'params': self.behaviour_net.actor_encoder.parameters(), 'lr':args.encoder_lrate}], alpha=0.99, eps=1e-5 )
+            # {'params': self.behaviour_net.encoder.parameters(), 'lr':args.encoder_lrate}
+            self.policy_optimizer = optim.RMSprop( [{'params': self.behaviour_net.policy_dicts.parameters(), 'lr':args.policy_lrate}, {'params': self.behaviour_net.encoder.parameters(), 'lr':args.encoder_lrate}], alpha=0.99, eps=1e-5 )
+            self.value_optimizer = optim.RMSprop( [{'params': self.behaviour_net.value_dicts.parameters(), 'lr':args.value_lrate}, {'params': self.behaviour_net.encoder.parameters(), 'lr':args.encoder_lrate}], alpha=0.99, eps=1e-5 )
         else:
             self.policy_optimizer = optim.RMSprop( self.behaviour_net.policy_dicts.parameters(), lr=args.policy_lrate, alpha=0.99, eps=1e-5 )
             self.value_optimizer = optim.RMSprop( self.behaviour_net.value_dicts.parameters(), lr=args.value_lrate, alpha=0.99, eps=1e-5 ) 
         if self.args.mixer:
             self.mixer_optimizer = optim.RMSprop( self.behaviour_net.mixer.parameters(), lr=args.mixer_lrate, alpha=0.99, eps=1e-5 )
         if self.args.multiplier:
-            self.lambda_optimizer = optim.RMSprop( [self.behaviour_net.multiplier], lr=args.lambda_lrate, alpha=0.99, eps=1e-5)
+            params = []
+            params.append({'params': self.behaviour_net.multiplier, 'lr' : args.lambda_lrate})
+            if self.args.encoder:
+                params.append({'params': self.behaviour_net.encoder.parameters(), 'lr':args.encoder_lrate})
+            params.append({'params': self.behaviour_net.cost_dicts.parameters(), 'lr' : args.value_lrate})
+            self.lambda_optimizer = optim.RMSprop(params, alpha=0.99, eps=1e-5)
         self.init_action = th.zeros(1, self.args.agent_num, self.args.action_dim).to(self.device)
         self.steps = 0
         self.episodes = 0

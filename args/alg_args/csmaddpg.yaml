@@ -6,8 +6,10 @@ alg_args:
     "gaussian_policy": False
     "multiplier": True
     "action_enforcebound": True
-    "init_lambda": 10.0
-    "lambda_lrate": 1.0e-5
-    "upper_bound": 1.0e-3
+    "init_lambda": 0.
+    "lambda_lrate": 5.0e-5
+    "upper_bound": 0.
+    "cost_gamma": 0.
+    "split_constraint": False
 
     

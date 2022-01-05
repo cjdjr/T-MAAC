@@ -107,6 +107,8 @@ class PGTester(object):
             # reset env
             state, global_state = self.env.manual_reset(test_data.iloc[epi]['day_id'],23,2)
             month = test_data.iloc[epi]['month']
+            if month > 1:
+                break
 
             # init hidden states
             last_hid = self.behaviour_net.policy_dicts[0].init_hidden()

@@ -204,7 +204,7 @@ class Model(nn.Module):
         obs = th.tensor(obs).to(self.device).float()
         act = th.tensor(act).to(self.device).float()
         values = self.value(obs, act)
-        if self.args.multiplier:
+        if isinstance(values,tuple):
             values,costs = values
         return values
 
@@ -227,7 +227,7 @@ class Model(nn.Module):
             with th.no_grad():
                 action, action_pol, log_prob_a, _, hid = self.get_actions(state_, status='train', exploration=True, actions_avail=th.tensor(trainer.env.get_avail_actions()), target=False, last_hid=last_hid)
                 value = self.value(state_, action_pol)
-            if self.args.multiplier:
+            if isinstance(value,tuple):
                 value, cost = value
             _, actual = translate_action(self.args, action, trainer.env)
 
@@ -266,7 +266,7 @@ class Model(nn.Module):
             with th.no_grad():
                 _, next_action_pol, _, _, _ = self.get_actions(next_state_, status='train', exploration=True, actions_avail=th.tensor(trainer.env.get_avail_actions()), target=False, last_hid=hid)
                 next_value = self.value(next_state_, next_action_pol)
-            if self.args.multiplier:
+            if isinstance(next_value,tuple):
                 next_value, next_cost = next_value
             # store trajectory
             if isinstance(done, list): done = np.sum(done)
@@ -319,30 +319,30 @@ class Model(nn.Module):
         stat_test = {}
         stat_test_min_max = {'max_test_constraint_error':-1.0, 'min_test_constraint_error':1.0}
         constraint_model = trainer.constraint_model
-        # test_data=  [
-        #                 529,
-        #                 893,
-        #                 152,
-        #                 160,
-        #                 530,
-        #                 902,
-        #                 903,
-        #                 905,
-        #                 520,
-        #                 526,
-        #             ]
-        test_data= [
-                    46,
-                    454,
-                    836,
-                    868,
-                    903,
-                    931,
-                    948,
-                    621,
-                    646,
-                    332,
+        test_data=  [
+                        529,
+                        893,
+                        152,
+                        160,
+                        530,
+                        902,
+                        903,
+                        905,
+                        520,
+                        526,
                     ]
+        # test_data= [
+        #             46,
+        #             454,
+        #             836,
+        #             868,
+        #             903,
+        #             931,
+        #             948,
+        #             621,
+        #             646,
+        #             332,
+        #             ]
         trainer.env.set_episode_limit(self.args.max_eval_steps)
         with th.no_grad():
             for _ in range(num_eval_episodes):
