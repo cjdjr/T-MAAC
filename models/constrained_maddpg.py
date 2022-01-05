@@ -106,7 +106,7 @@ class CSMADDPG(MADDPG):
         assert values_pol.size() == next_values.size()
         assert returns.size() == values.size()
         done = done.to(self.device)
-        returns = rewards - self.multiplier.detach() * cost + self.args.gamma * (1 - done) * next_values.detach() 
+        returns = rewards - self.multiplier.detach() * costs + self.args.gamma * (1 - done) * next_values.detach() 
         cost_returns = cost + self.args.cost_gamma * (1-done) * next_costs.detach()
         deltas, cost_deltas = returns - values, cost_returns - costs
         advantages = values_pol
@@ -114,8 +114,8 @@ class CSMADDPG(MADDPG):
             advantages = self.batchnorm(advantages)
         policy_loss = - advantages
         policy_loss = policy_loss.mean()
-        value_loss = deltas.pow(2).mean() + cost_deltas.pow(2).mean()
-        lambda_loss = - ((cost_returns.detach() - self.upper_bound) * self.multiplier).mean()
+        value_loss = deltas.pow(2).mean()
+        lambda_loss = - ((cost_returns.detach() - self.upper_bound) * self.multiplier).mean() + cost_deltas.pow(2).mean()
         return policy_loss, value_loss, action_out, lambda_loss
 
     def reset_multiplier(self):

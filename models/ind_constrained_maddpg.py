@@ -115,7 +115,7 @@ class ICSMADDPG(MADDPG):
         assert values_pol.size() == next_values.size()
         assert returns.size() == values.size()
         done = done.to(self.device)
-        returns = rewards - (self.multiplier.detach() * (cost * self.cs_mask)).sum(dim=-1) + self.args.gamma * (1 - done) * next_values.detach() 
+        returns = rewards - (self.multiplier.detach() * (costs * self.cs_mask)).sum(dim=-1) + self.args.gamma * (1 - done) * next_values.detach() 
         cost_returns = (cost + self.args.cost_gamma * (1-done).unsqueeze(dim=-1) * next_costs.detach()) * self.cs_mask
         deltas, cost_deltas = returns - values, (cost_returns - costs) * self.cs_mask
         advantages = values_pol
@@ -123,9 +123,10 @@ class ICSMADDPG(MADDPG):
             advantages = self.batchnorm(advantages)
         policy_loss = - advantages
         policy_loss = policy_loss.mean()
-        value_loss = deltas.pow(2).mean() + cost_deltas.pow(2).sum()/(self.cs_mask.sum() * batch_size)
+        value_loss = deltas.pow(2).mean()
         # lambda_loss = - ((cost_returns.detach() - self.upper_bound) * self.cs_mask * self.multiplier).mean(dim=(0,1)).sum()
         lambda_loss = - (((cost_returns.detach() - self.upper_bound) * self.cs_mask * self.multiplier).sum(dim=(0,1))/(1e-6 + batch_size * self.cs_mask.sum(dim=0))).sum()
+        lambda_loss += cost_deltas.pow(2).sum()/(self.cs_mask.sum() * batch_size)
         return policy_loss, value_loss, action_out, lambda_loss
 
     def reset_multiplier(self):
