@@ -47,7 +47,7 @@ class CSTRANSMADDPG(Model):
             self.policy_dicts = nn.ModuleList([ Agent(self.args) for _ in range(self.n_) ])
 
     def construct_value_net(self):
-        if self.args.encoder:
+        if self.args.critic_encoder:
             # input_shape = (self.obs_bus_num * self.args.out_hid_size + self.act_dim) * self.n_ + self.n_
             if self.args.merge_act:
                 input_shape = self.args.hid_size * self.n_ + self.n_
@@ -141,8 +141,12 @@ class CSTRANSMADDPG(Model):
         # obs_shape = (b, n, o)
         # act_shape = (b, n, a)
         batch_size = obs.size(0)
-        if self.args.encoder:
-            obs = self.encode(obs, act, self.args.merge_act)
+        if self.args.critic_encoder:
+            if self.args.value_grad:
+                obs = self.encode(obs, act, self.args.merge_act)
+            else:
+                with th.no_grad():
+                    obs = self.encode(obs, act, self.args.merge_act)
 
             obs_repeat = obs.unsqueeze(1).repeat(1, self.n_, 1, 1) # shape = (b, n, n, h)
             obs_reshape = obs_repeat.contiguous().view(batch_size, self.n_, -1) # shape = (b, n, n*h)
