@@ -22,12 +22,18 @@ class CSTRANSMADDPG(Model):
         self.obs_bus_num = np.max(args.obs_bus_num)
         self.agent_index_in_obs = args.agent_index_in_obs
         self.obs_mask = th.zeros(self.n_, self.obs_bus_num).to(self.device)
+        self.obs_flag = th.ones(self.n_, self.obs_bus_num).to(self.device)
         self.q_index = -1
+        self.v_index = 2
         for i in range(self.n_):
             self.obs_mask[i,args.obs_bus_num[i]:] = -np.inf
+            self.obs_flag[i,args.obs_bus_num[i]:] = 0.
         self.agent2region = args.agent2region
         self.region_num = np.max(self.agent2region) + 1
         self.encoder = TransformerEncoder(self.obs_bus_num, self.obs_bus_dim + self.region_num, args)
+        if self.args.pretrained is not None:
+            param = th.load(self.args.pretrained, map_location='cpu') if not args.cuda else th.load(self.args.pretrained)
+            self.encoder.load_state_dict(param)
         self.construct_model()
         self.apply(self.init_weights)
         if target_net != None:
@@ -63,10 +69,16 @@ class CSTRANSMADDPG(Model):
             self.value_dicts = nn.ModuleList( [ MLPCritic(input_shape, output_shape, self.args, self.args.use_date) ] )
             self.cost_dicts = nn.ModuleList( [ MLPCritic(input_shape, output_shape, self.args, self.args.use_date) for _ in range(self.cs_num) ] )
 
+    def construct_auxiliary_net(self):
+        if self.args.auxiliary:
+            input_shape = self.args.hid_size
+            output_shape = 1
+            self.auxiliary_dicts = nn.ModuleList( [ TransformerCritic(input_shape, output_shape, self.args, self.args.use_date) ] )
 
     def construct_model(self):
         self.construct_value_net()
         self.construct_policy_net()
+        self.construct_auxiliary_net()
 
     def update_target(self):
         for name, param in self.target_net.policy_dicts.state_dict().items():
@@ -264,3 +276,28 @@ class CSTRANSMADDPG(Model):
             if self.multiplier[i] < 0:
                 with th.no_grad():
                     self.multiplier[i] = 0.
+
+    def get_auxiliary_loss(self, batch):
+        batch_size = len(batch.state)
+        state, actions, old_log_prob_a, old_values, old_next_values, rewards, cost, next_state, done, last_step, actions_avail, last_hids, hids = self.unpack_data(batch)
+        
+        obs = state.view(batch_size*self.n_, self.obs_bus_num, self.obs_bus_dim).contiguous() # (b*n, self.obs_bus_num, self.obs_bus_dim)
+        with th.no_grad():
+            label = self._cal_out_of_control(obs)
+        zone_id = F.one_hot(th.tensor(self.agent2region)).to(self.device).float()
+        zone_id = zone_id[None,:,None,:].contiguous().repeat(batch_size, 1, self.obs_bus_num, 1).view(batch_size*self.n_, self.obs_bus_num, self.region_num)
+        mask = self.obs_mask[None,:,None,:].repeat(batch_size,1,1,1).view(batch_size*self.n_,1,-1).contiguous() # (b*n, 1, obs_bus_num)
+        agent_index = th.tensor(self.agent_index_in_obs)[None,:,None].repeat(batch_size, 1, 1).view(batch_size*self.n_, 1).contiguous().to(self.device)
+        obs = th.cat((obs,zone_id),dim=-1)
+        enc_obs, _ = self.encoder(obs, None, agent_index, mask) # (b*n, h)
+        pred, _ = self.auxiliary_dicts[0](enc_obs, None)
+        loss = nn.MSELoss()(pred, label)
+        return loss
+
+    def _cal_out_of_control(self, obs):
+        batch_size = obs.shape[0] // self.n_
+        mask = self.obs_flag[None, : ,:].repeat(batch_size, 1, 1).view(batch_size*self.n_, -1)
+        v = obs[:,:,self.v_index]
+        out_of_control = th.logical_or(v<0.95,v>1.05).float()
+        percentage_out_of_control = (out_of_control * mask).sum(dim=1, keepdim=True) / mask.sum(dim=1, keepdim=True)
+        return percentage_out_of_control

@@ -38,13 +38,16 @@ class Model(nn.Module):
                 update_params = (1 - self.args.target_lr) * param + self.args.target_lr * self.mixer.state_dict()[name]
                 self.target_net.mixer.state_dict()[name].copy_(update_params)
 
-    def transition_update(self, trainer, trans, stat):
+    def transition_update(self, trainer, trans, stat, destroy):
         if self.args.replay:
             trainer.replay_buffer.add_experience(trans)
             replay_cond = trainer.steps>self.args.replay_warmup\
              and len(trainer.replay_buffer.buffer)>=self.args.batch_size\
-             and trainer.steps%self.args.behaviour_update_freq==0
+             and (trainer.steps%self.args.behaviour_update_freq==0 or destroy == 1.)
             if replay_cond:
+                if self.args.auxiliary:
+                    for _ in range(self.args.auxiliary_update_epochs):
+                        trainer.auxiliary_replay_process(stat)
                 for _ in range(self.args.value_update_epochs):
                     trainer.value_replay_process(stat)
                 for _ in range(self.args.policy_update_epochs):
@@ -287,7 +290,7 @@ class Model(nn.Module):
                                         hid.detach().cpu().numpy()
                                     )
                 if not self.args.episodic:
-                    self.transition_update(trainer, trans, stat)
+                    self.transition_update(trainer, trans, stat, info["destroy"])
                 else:
                     episode.append(trans)
             for k, v in info.items():
@@ -319,30 +322,34 @@ class Model(nn.Module):
         stat_test = {}
         stat_test_min_max = {'max_test_constraint_error':-1.0, 'min_test_constraint_error':1.0}
         constraint_model = trainer.constraint_model
-        test_data=  [
-                        529,
-                        893,
-                        152,
-                        160,
-                        530,
-                        902,
+        if self.args.test_season == "June":
+            test_data=  [
+                            529,
+                            893,
+                            152,
+                            160,
+                            530,
+                            902,
+                            903,
+                            905,
+                            520,
+                            526,
+                        ]
+        elif self.args.test_season == "all":
+            test_data= [
+                        46,
+                        454,
+                        836,
+                        868,
                         903,
-                        905,
-                        520,
-                        526,
-                    ]
-        # test_data= [
-        #             46,
-        #             454,
-        #             836,
-        #             868,
-        #             903,
-        #             931,
-        #             948,
-        #             621,
-        #             646,
-        #             332,
-        #             ]
+                        931,
+                        948,
+                        621,
+                        646,
+                        332,
+                        ]
+        else:
+            NotImplementedError()
         trainer.env.set_episode_limit(self.args.max_eval_steps)
         with th.no_grad():
             for _ in range(num_eval_episodes):

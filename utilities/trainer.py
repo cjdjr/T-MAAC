@@ -47,6 +47,10 @@ class PGTrainer(object):
                 params.append({'params': self.behaviour_net.encoder.parameters(), 'lr':args.encoder_lrate})
             params.append({'params': self.behaviour_net.cost_dicts.parameters(), 'lr' : args.value_lrate})
             self.lambda_optimizer = optim.RMSprop(params, alpha=0.99, eps=1e-5)
+        if self.args.auxiliary:
+            assert self.args.encoder == True
+            self.auxiliary_optimizer = optim.RMSprop( [{'params': self.behaviour_net.auxiliary_dicts.parameters(), 'lr':args.auxiliary_lrate}, {'params': self.behaviour_net.encoder.parameters(), 'lr':args.auxiliary_lrate}], alpha=0.99, eps=1e-5 )
+        
         self.init_action = th.zeros(1, self.args.agent_num, self.args.action_dim).to(self.device)
         self.steps = 0
         self.episodes = 0
@@ -94,6 +98,11 @@ class PGTrainer(object):
         batch = self.replay_buffer.get_batch(self.args.batch_size)
         batch = self.behaviour_net.Transition(*zip(*batch))
         self.lambda_transition_process(stat, batch)
+
+    def auxiliary_replay_process(self, stat):
+        batch = self.replay_buffer.get_batch(self.args.batch_size)
+        batch = self.behaviour_net.Transition(*zip(*batch))
+        self.auxiliary_transition_process(stat, batch)
 
     def policy_transition_process(self, stat, trans):
         if self.args.continuous:
@@ -144,6 +153,16 @@ class PGTrainer(object):
         if th.any(self.behaviour_net.multiplier<0):
             self.behaviour_net.reset_multiplier()
         stat['mean_train_lambda'] = self.behaviour_net.multiplier.detach().mean().item()
+
+    def auxiliary_transition_process(self, stat, trans):
+        auxiliary_loss = self.behaviour_net.get_auxiliary_loss(trans)
+        self.auxiliary_optimizer.zero_grad()
+        auxiliary_loss.backward()
+        param = self.auxiliary_optimizer.param_groups[0]['params']
+        auxiliary_grad_norms = get_grad_norm(self.args, param)
+        self.auxiliary_optimizer.step()
+        stat['mean_train_auxiliary_grad_norm'] = auxiliary_grad_norms.item() # np.array(policy_grad_norms).mean()
+        stat['mean_train_auxiliary_loss'] = auxiliary_loss.clone().mean().item()
 
     def run(self, stat, episode):
         # self.behaviour_net.train()

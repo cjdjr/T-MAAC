@@ -58,3 +58,5 @@
 "predict_loss": False
 "encoder": False
 "split_constraint": False
+"auxiliary": False
+"test_season": "June" # "all" "June"
