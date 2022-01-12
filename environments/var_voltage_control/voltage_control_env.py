@@ -11,6 +11,7 @@ from .pf_res_plot import pf_res_plotly
 from .voltage_barrier.voltage_barrier_backend import VoltageBarrier
 
 from datetime import datetime
+import pandapower.topology as top
 
 def convert(dictionary):
     return namedtuple('GenericDict', dictionary.keys())(**dictionary)
@@ -100,6 +101,7 @@ class VoltageControl(MultiAgentEnv):
         self.region = np.append(self.region, 'all')
         self._cal_mask()
         agents_obs, state = self.reset()
+        self._cal_adj_matrix()
 
         self.obs_size = agents_obs[0].shape[0]
         self.state_size = state.shape[0]
@@ -875,6 +877,23 @@ class VoltageControl(MultiAgentEnv):
             self.mask = np.ones((self.n_agents,len(self.region)))
         self.mask = np.ones((self.n_agents,len(self.region)))
 
+    def _cal_adj_matrix(self):
+        obs_bus_num = np.max(self.obs_bus_num)
+        self.adj = list()
+        for region in self.region:
+            if region == 'main' or region == 'all':
+                continue
+            adj = np.zeros((obs_bus_num,obs_bus_num))
+            region_index = self.base_powergrid.bus.index[self.base_powergrid.bus.zone == region]
+            for i,start_index in enumerate(region_index):
+                dist = top.calc_distance_to_bus(self.base_powergrid, start_index, weight=None)
+                dist_index = dist.index[dist <= self.args.dis_threshold]
+                for j,end_index in enumerate(region_index):
+                    if end_index in dist_index:
+                        adj[i][j]=1
+            self.adj.append(adj)
+
+
     def get_constraint_mask(self):
         return self.mask
 
@@ -884,3 +903,6 @@ class VoltageControl(MultiAgentEnv):
 
     def get_agent_index_in_obs(self):
         return self.agent_index_in_obs 
+
+    def get_region_adj(self):
+        return self.adj
