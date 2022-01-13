@@ -13,11 +13,11 @@ from transition.model import transition_model, transition_model_linear
 
 parser = argparse.ArgumentParser(description="Train rl agent.")
 parser.add_argument("--save-path", type=str, nargs="?", default="./", help="Please enter the directory of saving model.")
-parser.add_argument("--alg", type=str, nargs="?", default="cstransmaddpg", help="Please enter the alg name.")
+parser.add_argument("--alg", type=str, nargs="?", default="transmaddpg", help="Please enter the alg name.")
 parser.add_argument("--env", type=str, nargs="?", default="var_voltage_control", help="Please enter the env name.")
 parser.add_argument("--alias", type=str, nargs="?", default="", help="Please enter the alias for exp control.")
 parser.add_argument("--mode", type=str, nargs="?", default="distributed", help="Please enter the mode: distributed or decentralised.")
-parser.add_argument("--scenario", type=str, nargs="?", default="case322_3min_final", help="Please input the valid name of an environment scenario.")
+parser.add_argument("--scenario", type=str, nargs="?", default="case33_3min_final", help="Please input the valid name of an environment scenario.")
 parser.add_argument("--voltage-barrier-type", type=str, nargs="?", default="l1", help="Please input the valid voltage barrier type: l1, courant_beltrami, l2, bowl or bump.")
 parser.add_argument("--season", type=str, nargs="?", default="all", help="all/summer/winter")
 parser.add_argument("--date-emb",  action='store_true')
@@ -84,6 +84,7 @@ alg_config_dict["region_num"] = env.get_num_of_regions()
 alg_config_dict['constraint_mask'] = env.get_constraint_mask()
 alg_config_dict['agent2region'] = env.get_agent2region()
 alg_config_dict['agent_index_in_obs'] = env.get_agent_index_in_obs()
+alg_config_dict['region_adj'] = env.get_region_adj()
 
 if argv.date_emb:
     alg_config_dict['agent_type'] = "rnn_with_date"

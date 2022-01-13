@@ -727,6 +727,13 @@ class VoltageControl(MultiAgentEnv):
                 #     info["totally_controllable_ratio"] = 0. if percent_of_v_out_of_control > 1e-3 else 1.
                     
         info["percentage_of_v_out_of_control_region"] = np.array(out_of_control)
+        
+        out_of_control = []
+        for i in range(self.n_agents):
+            zone = self.base_powergrid.sgen['name'][i]
+            zone_v = self.powergrid.res_bus["vm_pu"][self.powergrid.bus['zone'] == zone].to_numpy(copy=True)
+            out_of_control.append(( np.sum(zone_v < self.v_lower) + np.sum(zone_v > self.v_upper) ) / zone_v.shape[0])
+        info["percentage_of_v_out_of_control_agent"] = np.array(out_of_control)
 
         # voltage violation
         v_ref = 0.5 * (self.v_lower + self.v_upper)

@@ -4,11 +4,12 @@ alg_args:
     "policy_lrate": 1.0e-4
     "value_lrate": 1.0e-4
     "attend_heads": 4
-    "n_layers": 2
+    "n_layers": 3
     "norm_in": False
     "gaussian_policy": False
     "action_enforcebound": True
-    "predict_loss": True
-    "bus_num": null
-    "obs_position_list": null
+    "auxiliary_loss": True
+
+    "split_constraint": True
+    "cost_type": "agent"
     
