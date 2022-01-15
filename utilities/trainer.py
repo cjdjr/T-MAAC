@@ -45,7 +45,8 @@ class PGTrainer(object):
             params.append({'params': self.behaviour_net.multiplier, 'lr' : args.lambda_lrate})
             if self.args.encoder:
                 params.append({'params': self.behaviour_net.encoder.parameters(), 'lr':args.encoder_lrate})
-            params.append({'params': self.behaviour_net.cost_dicts.parameters(), 'lr' : args.value_lrate})
+            if hasattr(self.behaviour_net, "cost_dicts"):
+                params.append({'params': self.behaviour_net.cost_dicts.parameters(), 'lr' : args.value_lrate})
             self.lambda_optimizer = optim.RMSprop(params, alpha=0.99, eps=1e-5)
         if self.args.auxiliary:
             assert self.args.encoder == True
@@ -169,7 +170,8 @@ class PGTrainer(object):
         self.behaviour_net.train_process(stat, self)
         if (episode%self.args.eval_freq == self.args.eval_freq-1) or (episode == 0):
             # self.behaviour_net.eval()
-            self.behaviour_net.evaluation(stat, self)
+            self.behaviour_net.evaluation(stat, self, 'June')
+            self.behaviour_net.evaluation(stat, self, 'All')
 
     def logging(self, stat, use_wandb=False):
         for k, v in stat.items():

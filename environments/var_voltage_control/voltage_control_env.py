@@ -227,6 +227,7 @@ class VoltageControl(MultiAgentEnv):
             info["totally_controllable_ratio"] = 0.
             info["percentage_of_v_out_of_control"] = 1.
             info["percentage_of_v_out_of_control_region"] = np.ones(len(self.region))
+            info["percentage_of_v_out_of_control_agent"] = np.ones(self.n_agents)
             info["q_loss"] = q_loss
 
         # set the pv and demand for the next time step

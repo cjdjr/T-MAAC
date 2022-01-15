@@ -89,6 +89,7 @@ class TransformerEncoder(nn.Module):
         # gather agent index
         for layer in self.attn_layers[:-1]:
             x = layer(x, mask)
+        emb = x
         x = self.attn_layers[-1](x, final_mask)
         index = agent_index.unsqueeze(dim=-1).expand(-1, 1, self.hidden_dim)
         output = x.gather(1, index).contiguous().squeeze(dim=1) # (b*n, h)
@@ -102,4 +103,4 @@ class TransformerEncoder(nn.Module):
             h = None
         else:
             h = x[:,-1:,:].contiguous().squeeze(dim=1) # (b*n, h)
-        return output, h
+        return output, h, emb

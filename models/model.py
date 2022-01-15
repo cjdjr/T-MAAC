@@ -260,7 +260,12 @@ class Model(nn.Module):
             else:
                 reward_repeat = [reward]*trainer.env.get_num_of_agents()
             if self.args.split_constraint:
-                out_of_control = [info['percentage_of_v_out_of_control_region'] for _ in range(self.n_)]
+                if self.args.cost_type == "region":
+                    out_of_control = [info['percentage_of_v_out_of_control_region'] for _ in range(self.n_)]
+                elif self.args.cost_type == 'agent':
+                    out_of_control = info['percentage_of_v_out_of_control_agent']
+                else:
+                    NotImplementedError()
             else:
                 out_of_control = [info['percentage_of_v_out_of_control']] * trainer.env.get_num_of_agents()
             # next state, action, value
@@ -317,12 +322,11 @@ class Model(nn.Module):
         if self.args.episodic:
             self.episode_update(trainer, episode, stat)
 
-    def evaluation(self, stat, trainer):
+    def evaluation(self, stat, trainer, test_season='June'):
         num_eval_episodes = self.args.num_eval_episodes
         stat_test = {}
-        stat_test_min_max = {'max_test_constraint_error':-1.0, 'min_test_constraint_error':1.0}
         constraint_model = trainer.constraint_model
-        if self.args.test_season == "June":
+        if test_season == "June":
             test_data=  [
                             529,
                             893,
@@ -335,7 +339,7 @@ class Model(nn.Module):
                             520,
                             526,
                         ]
-        elif self.args.test_season == "all":
+        elif test_season == "All":
             test_data= [
                         46,
                         454,
@@ -353,7 +357,7 @@ class Model(nn.Module):
         trainer.env.set_episode_limit(self.args.max_eval_steps)
         with th.no_grad():
             for _ in range(num_eval_episodes):
-                stat_test_epi = {'mean_test_reward': 0, 'mean_test_constraint_error':0}
+                stat_test_epi = {'mean_test_reward': 0}
                 # state, global_state = trainer.env.reset()
                 state, global_state = trainer.env.manual_reset(test_data[_], 23, 2)
                 # init hidden states
@@ -365,17 +369,17 @@ class Model(nn.Module):
                     reward, done, info = trainer.env.step(actual)
                     done_ = done or t==self.args.max_eval_steps-1
                     next_state = trainer.env.get_obs()
-                    if constraint_model is not None:
-                        with th.no_grad():
-                            q = trainer.env.now_q
-                            state = trainer.env.get_state()
-                            label_v = state[-2*len(trainer.env.base_powergrid.bus):-len(trainer.env.base_powergrid.bus)]
-                            state = th.tensor(state).to(th.float32).to(self.device)[None,:]
-                            q = th.tensor(q).to(th.float32).to(self.device)[None,:]
-                            pred_v = constraint_model(th.cat((state,q),dim=1)).detach().squeeze().cpu().numpy()
-                            stat_test_epi['mean_test_constraint_error'] += np.mean(np.abs(pred_v - label_v))
-                            stat_test_min_max['max_test_constraint_error'] = max(stat_test_min_max['max_test_constraint_error'], np.max(pred_v - label_v))
-                            stat_test_min_max['min_test_constraint_error'] = min(stat_test_min_max['min_test_constraint_error'], np.min(pred_v - label_v))
+                    # if constraint_model is not None:
+                    #     with th.no_grad():
+                    #         q = trainer.env.now_q
+                    #         state = trainer.env.get_state()
+                    #         label_v = state[-2*len(trainer.env.base_powergrid.bus):-len(trainer.env.base_powergrid.bus)]
+                    #         state = th.tensor(state).to(th.float32).to(self.device)[None,:]
+                    #         q = th.tensor(q).to(th.float32).to(self.device)[None,:]
+                    #         pred_v = constraint_model(th.cat((state,q),dim=1)).detach().squeeze().cpu().numpy()
+                    #         stat_test_epi['mean_test_constraint_error'] += np.mean(np.abs(pred_v - label_v))
+                    #         stat_test_min_max['max_test_constraint_error'] = max(stat_test_min_max['max_test_constraint_error'], np.max(pred_v - label_v))
+                    #         stat_test_min_max['min_test_constraint_error'] = min(stat_test_min_max['min_test_constraint_error'], np.min(pred_v - label_v))
 
                     if isinstance(done, list): done = np.sum(done)
                     for k, v in info.items():
@@ -394,6 +398,7 @@ class Model(nn.Module):
                 for k, v in stat_test_epi.items():
                     stat_test_epi[k] = v / float(t+1)
                 for k, v in stat_test_epi.items():
+                    k = test_season + "_" + k
                     if k not in stat_test.keys():
                         stat_test[k] = v
                     else:
@@ -401,7 +406,6 @@ class Model(nn.Module):
         for k, v in stat_test.items():
             stat_test[k] = v / float(num_eval_episodes)
         stat.update(stat_test)
-        stat.update(stat_test_min_max)
         trainer.env.set_episode_limit(self.args.max_steps)
 
     def unpack_data(self, batch):
