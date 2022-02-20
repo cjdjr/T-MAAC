@@ -1,15 +1,18 @@
 import torch.nn as nn
+import torch
 
-class TransformerAgent(nn.Module):
-    # sa_sizes, hidden_dim=32, norm_in=True, attend_heads=1
-    def __init__(self, args):
-        super(TransformerAgent, self).__init__()
+class RNNAgent(nn.Module):
+    def __init__(self, input_shape, args):
+        super(RNNAgent, self).__init__()
         self.args = args
-        self.fc1 = nn.Linear(args.hid_size, args.hid_size)
+
+        self.fc1 = nn.Linear(input_shape, args.hid_size)
         if args.layernorm:
             self.layernorm = nn.LayerNorm(args.hid_size)
         self.rnn = nn.GRUCell(args.hid_size, args.hid_size)
-        self.final_output_layer = nn.Linear(args.hid_size, args.action_dim)
+        self.fc2 = nn.Linear(args.hid_size, args.action_dim)
+        self.aux_head = nn.Linear(args.hid_size, 1)
+        
         if self.args.hid_activation == 'relu':
             self.hid_activation = nn.ReLU()
         elif self.args.hid_activation == 'tanh':
@@ -18,7 +21,6 @@ class TransformerAgent(nn.Module):
     def init_hidden(self):
         # make hidden states on same device as model
         return self.fc1.weight.new(1, self.args.agent_num, self.args.hid_size).zero_()
-        # return th.zeros(1, self.args.agent_num, self.hidden_dim).cuda()
 
     def forward(self, inputs, hidden_state):
         x = self.fc1(inputs)
@@ -27,5 +29,6 @@ class TransformerAgent(nn.Module):
         x = self.hid_activation(x)
         h_in = hidden_state.reshape(-1, self.args.hid_size)
         h = self.rnn(x, h_in)
-        a = self.final_output_layer(h)
-        return a, None, h
+        a = self.fc2(h)
+        pred_aux = self.aux_head(h)
+        return (a,pred_aux), None, h
