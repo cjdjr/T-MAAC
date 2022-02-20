@@ -8,19 +8,34 @@ from environments.var_voltage_control.voltage_control_env import VoltageControl
 from utilities.util import convert
 from utilities.tester import PGTester
 
+def test_one_step(net, env):
+    net = net.to(net.device)
+    import numpy as np
+    obs, _  = env.reset()
+    act = env.get_action()
+    obs_reshape = torch.tensor(np.array(obs))[None,:,:].float().cuda()
+    act_reshape = torch.tensor(np.array(act))[None,:,None].float().cuda()
+    act_reshape, _, _ = net.policy(obs_reshape, last_hid = net.policy_dicts[0].init_hidden())
+    value,cost = net.value(obs_reshape, act_reshape)
+    act = act_reshape.detach().squeeze().cpu().numpy()
+    reward, done, info = env.step(act)
+    true_cost = info['percentage_of_v_out_of_control']
+    print(true_cost)
+    print(cost)
+    print("ok")
 
 
 parser = argparse.ArgumentParser(description="Train rl agent.")
-parser.add_argument("--save-path", type=str, nargs="?", default="./", help="Please enter the directory of saving model.")
-parser.add_argument("--alg", type=str, nargs="?", default="maddpg", help="Please enter the alg name.")
+parser.add_argument("--save-path", type=str, nargs="?", default="./trial/model_save", help="Please enter the directory of saving model.")
+parser.add_argument("--alg", type=str, nargs="?", default="icstransmaddpg", help="Please enter the alg name.")
 parser.add_argument("--env", type=str, nargs="?", default="var_voltage_control", help="Please enter the env name.")
-parser.add_argument("--alias", type=str, nargs="?", default="", help="Please enter the alias for exp control.")
+parser.add_argument("--alias", type=str, nargs="?", default="k=1_3layer_actor_t_aux_critic_raw_t_6", help="Please enter the alias for exp control.")
 parser.add_argument("--mode", type=str, nargs="?", default="distributed", help="Please enter the mode: distributed or decentralised.")
-parser.add_argument("--scenario", type=str, nargs="?", default="bus33_3min_final", help="Please input the valid name of an environment scenario.")
-parser.add_argument("--voltage-barrier-type", type=str, nargs="?", default="l1", help="Please input the valid voltage barrier type: l1, courant_beltrami, l2, bowl or bump.")
+parser.add_argument("--scenario", type=str, nargs="?", default="case322_3min_final", help="Please input the valid name of an environment scenario.")
+parser.add_argument("--voltage-barrier-type", type=str, nargs="?", default="l2", help="Please input the valid voltage barrier type: l1, courant_beltrami, l2, bowl or bump.")
 parser.add_argument("--date-emb",  action='store_true')
 parser.add_argument("--test-mode", type=str, nargs="?", default="single", help="Please input the valid test mode: single or batch.")
-parser.add_argument("--test-day", type=int, nargs="?", default=730, help="Please input the day you would test if the test mode is single.")
+parser.add_argument("--test-day", type=int, nargs="?", default=199, help="Please input the day you would test if the test mode is single.")
 parser.add_argument("--render", action="store_true", help="Activate the rendering of the environment.")
 argv = parser.parse_args()
 
@@ -58,6 +73,7 @@ if argv.date_emb:
 with open("./args/default.yaml", "r") as f:
     default_config_dict = yaml.safe_load(f)
 default_config_dict["max_steps"] = 480
+default_config_dict["cuda"] = True
 
 # load alg args
 with open("./args/alg_args/"+argv.alg+".yaml", "r") as f:
@@ -73,8 +89,16 @@ env = VoltageControl(env_config_dict)
 
 alg_config_dict["agent_num"] = env.get_num_of_agents()
 alg_config_dict["obs_size"] = env.get_obs_size()
+alg_config_dict["obs_bus_dim"] = env.get_obs_dim()
+alg_config_dict["obs_bus_num"] = env.get_obs_bus_num()
 alg_config_dict["action_dim"] = env.get_total_actions()
-alg_config_dict["cuda"] = False
+alg_config_dict["bus_num"] = env.get_num_of_buses()
+# alg_config_dict["obs_position_list"] = env.get_obs_position_list()
+alg_config_dict["region_num"] = env.get_num_of_regions()
+alg_config_dict['constraint_mask'] = env.get_constraint_mask()
+alg_config_dict['agent2region'] = env.get_agent2region()
+alg_config_dict['agent_index_in_obs'] = env.get_agent_index_in_obs()
+alg_config_dict['region_adj'] = env.get_region_adj()
 
 if argv.date_emb:
     alg_config_dict['agent_type'] = "rnn_with_date"
@@ -103,7 +127,7 @@ checkpoint = torch.load(LOAD_PATH, map_location='cpu') if not args.cuda else tor
 behaviour_net.load_state_dict(checkpoint['model_state_dict'])
 
 print (f"{args}\n")
-
+# test_one_step(behaviour_net, env)
 if strategy == "pg":
     test = PGTester(args, behaviour_net, env, argv.render)
 elif strategy == "q":

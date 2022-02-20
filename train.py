@@ -13,7 +13,7 @@ from transition.model import transition_model, transition_model_linear
 
 parser = argparse.ArgumentParser(description="Train rl agent.")
 parser.add_argument("--save-path", type=str, nargs="?", default="./", help="Please enter the directory of saving model.")
-parser.add_argument("--alg", type=str, nargs="?", default="transmaddpg", help="Please enter the alg name.")
+parser.add_argument("--alg", type=str, nargs="?", default="maddpg", help="Please enter the alg name.")
 parser.add_argument("--env", type=str, nargs="?", default="var_voltage_control", help="Please enter the env name.")
 parser.add_argument("--alias", type=str, nargs="?", default="", help="Please enter the alias for exp control.")
 parser.add_argument("--mode", type=str, nargs="?", default="distributed", help="Please enter the mode: distributed or decentralised.")
@@ -103,13 +103,15 @@ if argv.safe != 'none':
     
 if argv.wandb:
     wandb.init(
-        project='mapdn',
+        project='mapdn_KDD',
         entity="chelly",
         name=log_name,
         group='_'.join(log_name.split('_')[:-1]),
+        save_code=True
     )
     wandb.config.update(env_config_dict)
     wandb.config.update(alg_config_dict)
+    wandb.run.log_code('.')
     
 
 
