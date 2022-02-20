@@ -22,12 +22,14 @@ alg_args:
     "auxiliary_lrate": 1.0e-5 # encoder_lrate = auxiliary_lrate
 
     # for critic
-    "critic_encoder": True
+    "critic_type": "transformer" # "transformer" "mlp"
+    "critic_encoder": False
     "use_emb": "glimpsed" # "glimpsed" or "mean"
     "value_grad": True
     "merge_act": False
 
-    "auxiliary_loss": True
+    "auxiliary_loss": False
+    "cost_head_lrate": 1.0e-4
     "split_constraint": True
     "cost_type": "agent"
 

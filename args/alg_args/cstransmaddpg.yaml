@@ -8,7 +8,8 @@ alg_args:
     "action_enforcebound": True
 
     "encoder": True
-    "critic_encoder": True
+    "critic_encoder": False
+    "use_emb": "glimpsed" # "glimpsed" or "mean"
     "value_grad": False
     "merge_act": False
     "encoder_lrate": 1.0e-5 # for encoder in critic

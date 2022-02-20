@@ -22,4 +22,4 @@ env_args:
     "reset_action": True
     "season": "all" # all / summer / winter
     "control": "all" # all / zone2
-    "dis_threshold": 3
+    "dis_threshold": 1

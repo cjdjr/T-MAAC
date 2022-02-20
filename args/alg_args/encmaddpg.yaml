@@ -1,0 +1,13 @@
+alg: "encmaddpg"
+
+alg_args:
+    "policy_lrate": 1.0e-4
+    "value_lrate": 1.0e-4
+    "gaussian_policy": False
+    "action_enforcebound": True
+    "encoder": True
+    "enc_hid_size": 64
+    "out_hid_size": 8
+    "attend_heads": 4
+    "n_layers": 2
+    

@@ -5,3 +5,5 @@ alg_args:
     "value_lrate": 1.0e-4
     "gaussian_policy": False
     "action_enforcebound": True
+    "aux_loss": False
+    "agent_type": "rnn" # "rnn" "rnn_aux" "rnn_ex"

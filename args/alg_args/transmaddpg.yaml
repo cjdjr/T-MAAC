@@ -8,8 +8,12 @@ alg_args:
     "norm_in": False
     "gaussian_policy": False
     "action_enforcebound": True
-    "auxiliary_loss": True
+    "auxiliary_loss": False
 
     "split_constraint": True
     "cost_type": "agent"
     
+    "multiplier": False
+    "init_lambda": 0.
+    "lambda_lrate": 5.0e-5
+    "upper_bound": 0.
