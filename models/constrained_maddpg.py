@@ -16,6 +16,22 @@ class CSMADDPG(MADDPG):
         self.multiplier = th.nn.Parameter(th.tensor(args.init_lambda,device=self.device))
         self.upper_bound = args.upper_bound
 
+    def update_target(self):
+        for name, param in self.target_net.policy_dicts.state_dict().items():
+            update_params = (1 - self.args.target_lr) * param + self.args.target_lr * self.policy_dicts.state_dict()[name]
+            self.target_net.policy_dicts.state_dict()[name].copy_(update_params)
+        for name, param in self.target_net.value_dicts.state_dict().items():
+            update_params = (1 - self.args.target_lr) * param + self.args.target_lr * self.value_dicts.state_dict()[name]
+            self.target_net.value_dicts.state_dict()[name].copy_(update_params)
+        if self.args.mixer:
+            for name, param in self.target_net.mixer.state_dict().items():
+                update_params = (1 - self.args.target_lr) * param + self.args.target_lr * self.mixer.state_dict()[name]
+                self.target_net.mixer.state_dict()[name].copy_(update_params)
+        if self.args.multiplier:
+            for name, param in self.target_net.cost_dicts.state_dict().items():
+                update_params = (1 - self.args.target_lr) * param + self.args.target_lr * self.cost_dicts.state_dict()[name]
+                self.target_net.cost_dicts.state_dict()[name].copy_(update_params)
+                
     def construct_value_net(self):
         if self.args.agent_id:
             input_shape = (self.obs_dim + self.act_dim) * self.n_ + self.n_

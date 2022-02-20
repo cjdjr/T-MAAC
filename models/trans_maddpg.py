@@ -12,6 +12,9 @@ class TransMADDPG(MADDPG):
         # self.obs_position_list = args.obs_position_list
         # self.predict_dim = self.obs_position_list[:,1]-self.obs_position_list[:,0]
         super(TransMADDPG, self).__init__(args, target_net)
+        self.cs_num = self.n_
+        self.multiplier = th.nn.Parameter(th.tensor([args.init_lambda for _ in range(self.cs_num)],device=self.device))
+        self.upper_bound = args.upper_bound
 
     def construct_value_net(self):
         input_shape = self.obs_dim + self.act_dim
@@ -54,7 +57,8 @@ class TransMADDPG(MADDPG):
         assert values_pol.size() == next_values.size()
         assert returns.size() == values.size()
         done = done.to(self.device)
-        returns = rewards + self.args.gamma * (1 - done) * next_values.detach()
+        returns = rewards - (self.multiplier.detach() * cost).sum(dim=-1, keepdim=True) + self.args.gamma * (1 - done) * next_values.detach()
+        cost_returns = cost # cost_gamma = 0
         deltas = returns - values
         advantages = values_pol
         if self.args.normalize_advantages:
@@ -64,7 +68,14 @@ class TransMADDPG(MADDPG):
         value_loss = deltas.pow(2).mean()
         if self.args.auxiliary_loss:
             value_loss += (costs - cost).pow(2).mean()
-        return policy_loss, value_loss, action_out, None
+        lambda_loss = - ((cost_returns.detach() - self.upper_bound) * self.multiplier).mean(dim=0).sum()
+        return policy_loss, value_loss, action_out, lambda_loss
+
+    def reset_multiplier(self):
+        for i in range(self.cs_num):
+            if self.multiplier[i] < 0:
+                with th.no_grad():
+                    self.multiplier[i] = 0.
 
     # def get_predict_loss(self, obs, actions, next_obs):
     #     embedding = self.value_dicts[0].encoder(obs) # (B,N,H)

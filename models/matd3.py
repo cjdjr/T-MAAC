@@ -10,6 +10,14 @@ from critics.mlp_critic import MLPCritic
 class MATD3(Model):
     def __init__(self, args, target_net=None):
         super(MATD3, self).__init__(args)
+
+        # for observation transformer encoder
+        self.obs_bus_dim = args.obs_bus_dim
+        self.obs_bus_num = np.max(args.obs_bus_num)
+        self.obs_flag = th.ones(self.n_, self.obs_bus_num).to(self.device)
+        self.q_index = -1
+        self.v_index = 2
+
         self.construct_model()
         self.apply(self.init_weights)
         if target_net != None:
@@ -144,5 +152,22 @@ class MATD3(Model):
             advantages = self.batchnorm(advantages)
         policy_loss = - advantages
         policy_loss = policy_loss.mean()
+    
+        if self.args.aux_loss:
+            pred = action_out[-1].view(batch_size*self.n_, -1)
+            obs = state.view(batch_size, self.n_, self.obs_bus_num, self.obs_bus_dim).contiguous()
+            with th.no_grad():
+                label = self._cal_out_of_control(obs.view(batch_size*self.n_, self.obs_bus_num, self.obs_bus_dim))
+            policy_loss += nn.MSELoss()(pred, label)
+
         value_loss = 0.5 * ( deltas1.pow(2).mean() + deltas2.pow(2).mean() )
+        # return policy_loss, value_loss, (action_out[0],action_out[1]), None
         return policy_loss, value_loss, action_out, None
+
+    def _cal_out_of_control(self, obs):
+        batch_size = obs.shape[0] // self.n_
+        mask = self.obs_flag[None, : ,:].repeat(batch_size, 1, 1).view(batch_size*self.n_, -1)
+        v = obs[:,:,self.v_index]
+        out_of_control = th.logical_or(v<0.95,v>1.05).float()
+        percentage_out_of_control = (out_of_control * mask).sum(dim=1, keepdim=True) / mask.sum(dim=1, keepdim=True)
+        return percentage_out_of_control

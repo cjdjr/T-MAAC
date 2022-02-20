@@ -1,37 +1,72 @@
+from numpy.core.fromnumeric import repeat
 import torch as th
 import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
 from utilities.util import select_action
 from models.model import Model
 from critics.mlp_critic import MLPCritic
-from critics.attention_critic import AttentionCritic
-from critics.transformer_critic import TransformerCritic
+from critics.transformer_encoder import TransformerEncoder
 
 
-class MADDPG(Model):
+class ENCMADDPG(Model):
     def __init__(self, args, target_net=None):
-        super(MADDPG, self).__init__(args)
-
-        # for observation transformer encoder
+        super(ENCMADDPG, self).__init__(args)
         self.obs_bus_dim = args.obs_bus_dim
         self.obs_bus_num = np.max(args.obs_bus_num)
-        self.obs_flag = th.ones(self.n_, self.obs_bus_num).to(self.device)
-        self.q_index = -1
-        self.v_index = 2
-
+        self.agent2region = args.agent2region
+        self.region_num = np.max(self.agent2region) + 1
+        self.actor_encoder = nn.ModuleList()
+        self.critic_encoder = nn.ModuleList()
+        self.actor_encoder.append(TransformerEncoder(self.obs_bus_num, self.obs_bus_dim + self.region_num, args))
+        self.critic_encoder.append(TransformerEncoder(self.obs_bus_num, self.obs_bus_dim + self.region_num, args))
         self.construct_model()
         self.apply(self.init_weights)
         if target_net != None:
             self.target_net = target_net
             self.reload_params_to_target()
         self.batchnorm = nn.BatchNorm1d(self.args.agent_num).to(self.device)
+        
 
+    def construct_policy_net(self):
+        if self.args.agent_id:
+            # input_shape = self.obs_bus_num * self.args.out_hid_size + self.n_
+            input_shape = self.obs_dim + self.n_
+        else:
+            input_shape = self.obs_bus_num * self.args.out_hid_size
+
+        if self.args.agent_type == 'mlp':
+            if self.args.gaussian_policy:
+                from agents.mlp_agent_gaussian import MLPAgent
+            else:
+                from agents.mlp_agent import MLPAgent
+            Agent = MLPAgent
+        elif self.args.agent_type == 'rnn':
+            if self.args.gaussian_policy:
+                from agents.rnn_agent_gaussian import RNNAgent
+            else:
+                from agents.rnn_agent import RNNAgent
+            Agent = RNNAgent
+        elif self.args.agent_type == 'rnn_with_date':
+            if self.args.gaussian_policy:
+                NotImplementedError()
+            else:
+                from agents.rnn_agent_dateemb import RNNAgent
+            Agent = RNNAgent
+        else:
+            NotImplementedError()
+            
+        if self.args.shared_params:
+            self.policy_dicts = nn.ModuleList([ Agent(input_shape, self.args) ])
+        else:
+            self.policy_dicts = nn.ModuleList([ Agent(input_shape, self.args) for _ in range(self.n_) ])
 
     def construct_value_net(self):
         if self.args.agent_id:
-            input_shape = (self.obs_dim + self.act_dim) * self.n_ + self.n_
+            input_shape = (self.obs_bus_num * self.args.out_hid_size + self.act_dim) * self.n_ + self.n_
+            # input_shape = (self.obs_dim + self.act_dim) * self.n_ + self.n_
         else:
-            input_shape = (self.obs_dim + self.act_dim) * self.n_
+            input_shape = (self.obs_bus_num * self.args.out_hid_size + self.act_dim) * self.n_
         if self.args.use_date:
             input_shape -= self.args.date_dim * (self.n_ - 1 )
 
@@ -50,18 +85,70 @@ class MADDPG(Model):
         self.construct_value_net()
         self.construct_policy_net()
 
-    def value(self, obs, act):
+    def encode(self, encoder, raw_obs):
+        # trans_obs = raw_obs.transpose(0,1).contiguous()
+        # obs = []
+        # for i in range(self.n_):
+        #     obs.append(self.actor_encoder[i](trans_obs[i]))
+        # obs = th.stack(obs)
+        # obs = obs.contiguous().transpose(0,1)
+        batch_size = raw_obs.size(0)
+        obs = raw_obs.view(batch_size*self.n_, self.obs_bus_dim, self.obs_bus_num).transpose(1,2).contiguous() # (b*n, self.obs_bus_num, self.obs_bus_dim)
+        zone_id = F.one_hot(th.tensor(self.agent2region)).to(self.device).float()
+        zone_id = zone_id[None,:,None,:].contiguous().repeat(batch_size, 1, self.obs_bus_num, 1).view(batch_size*self.n_, self.obs_bus_num, self.region_num)
+        obs = encoder[0](th.cat((obs,zone_id),dim=-1)).view(batch_size, self.n_, -1).contiguous()
+        return obs
+
+    def policy(self, raw_obs, schedule=None, last_act=None, last_hid=None, info={}, stat={}):
+        # obs_shape = (b, n, o)
+        batch_size = raw_obs.size(0)
+        # obs = self.encode(self.actor_encoder, raw_obs)
+        obs = raw_obs
+
+        # add agent id
+        if self.args.agent_id:
+            agent_ids = th.eye(self.n_).unsqueeze(0).repeat(batch_size, 1, 1).to(self.device) # shape = (b, n, n)
+            obs = th.cat( (obs, agent_ids), dim=-1 ) # shape = (b, n, n+o)
+
+        if self.args.shared_params:
+            # print (f"This is the shape of last_hids: {last_hid.size()}")
+            obs = obs.contiguous().view(batch_size*self.n_, -1) # shape = (b*n, n+o/o)
+            agent_policy = self.policy_dicts[0]
+            means, log_stds, hiddens = agent_policy(obs, last_hid)
+            # hiddens = th.stack(hiddens, dim=1)
+            means = means.contiguous().view(batch_size, self.n_, -1)
+            hiddens = hiddens.contiguous().view(batch_size, self.n_, -1)
+            if self.args.gaussian_policy:
+                log_stds = log_stds.contiguous().view(batch_size, self.n_, -1)
+            else:
+                stds = th.ones_like(means).to(self.device) * self.args.fixed_policy_std
+                log_stds = th.log(stds)
+        else:
+            means = []
+            hiddens = []
+            log_stds = []
+            for i, agent_policy in enumerate(self.policy_dicts):
+                mean, log_std, hidden = agent_policy(obs[:, i, :], last_hid[:, i, :])
+                means.append(mean)
+                hiddens.append(hidden)
+                log_stds.append(log_std)
+            means = th.stack(means, dim=1)
+            hiddens = th.stack(hiddens, dim=1)
+            if self.args.gaussian_policy:
+                log_stds = th.stack(log_stds, dim=1)
+            else:
+                log_stds = th.zeros_like(means).to(self.device)
+
+        return means, log_stds, hiddens
+
+    def value(self, raw_obs, act):
         # obs_shape = (b, n, o)
         # act_shape = (b, n, a)
-        batch_size = obs.size(0)
-        if self.args.use_date:
-            date = obs[:,:,:self.args.date_dim]
-            obs = obs[:,:,self.args.date_dim:]
-        # obs = self.value_dicts[0].encoder(obs)
+        batch_size = raw_obs.size(0)
+        obs = self.encode(self.critic_encoder, raw_obs)
+        # obs = raw_obs
         obs_repeat = obs.unsqueeze(1).repeat(1, self.n_, 1, 1) # shape = (b, n, n, o)
         obs_reshape = obs_repeat.contiguous().view(batch_size, self.n_, -1) # shape = (b, n, n*o)
-        if self.args.use_date:
-            obs_reshape = th.cat((date, obs_reshape), dim=-1)
 
         # add agent id
         agent_ids = th.eye(self.n_).unsqueeze(0).repeat(batch_size, 1, 1).to(self.device) # shape = (b, n, n)
@@ -144,22 +231,5 @@ class MADDPG(Model):
             advantages = self.batchnorm(advantages)
         policy_loss = - advantages
         policy_loss = policy_loss.mean()
-
-        if self.args.aux_loss:
-            pred = action_out[-1].view(batch_size*self.n_, -1)
-            obs = state.view(batch_size, self.n_, self.obs_bus_num, self.obs_bus_dim).contiguous()
-            with th.no_grad():
-                label = self._cal_out_of_control(obs.view(batch_size*self.n_, self.obs_bus_num, self.obs_bus_dim))
-            policy_loss += nn.MSELoss()(pred, label)
-
         value_loss = deltas.pow(2).mean()
-        # return policy_loss, value_loss, (action_out[0],action_out[1]), None
         return policy_loss, value_loss, action_out, None
-
-    def _cal_out_of_control(self, obs):
-        batch_size = obs.shape[0] // self.n_
-        mask = self.obs_flag[None, : ,:].repeat(batch_size, 1, 1).view(batch_size*self.n_, -1)
-        v = obs[:,:,self.v_index]
-        out_of_control = th.logical_or(v<0.95,v>1.05).float()
-        percentage_out_of_control = (out_of_control * mask).sum(dim=1, keepdim=True) / mask.sum(dim=1, keepdim=True)
-        return percentage_out_of_control

@@ -174,6 +174,18 @@ class Model(nn.Module):
             else:
                 from agents.rnn_agent_dateemb import RNNAgent
             Agent = RNNAgent
+        elif self.args.agent_type == 'rnn_aux':
+            if self.args.gaussian_policy:
+                NotImplementedError()
+            else:
+                from agents.rnn_aux_agent import RNNAgent
+            Agent = RNNAgent
+        elif self.args.agent_type == "rnn_ex":
+            if self.args.gaussian_policy:
+                NotImplementedError()
+            else:
+                from agents.rnn_agent_ex import RNNAgent
+            Agent = RNNAgent
         else:
             NotImplementedError()
             

@@ -65,14 +65,21 @@ class ICSTRANSMADDPG(Model):
 
     def construct_value_net(self):
         # (transformer encoder / raw obs) + transformer critic
-        if self.args.critic_encoder:
-            input_shape = self.args.hid_size + self.act_dim
+        if self.args.critic_type == "transformer":
+            if self.args.critic_encoder:
+                input_shape = self.args.hid_size + self.act_dim
+                output_shape = 1
+                self.value_dicts = nn.ModuleList( [ TransformerCritic(input_shape, self.args) ] )
+            else:
+                input_shape = self.obs_dim + self.act_dim
+                output_shape = 1
+                self.value_dicts = nn.ModuleList( [ TransformerCritic(input_shape, self.args) ] )
+        elif self.args.critic_type == "mlp":
+            input_shape = ( self.obs_dim + self.act_dim ) * self.n_
             output_shape = 1
-            self.value_dicts = nn.ModuleList( [ TransformerCritic(input_shape, self.args) ] )
+            self.value_dicts = nn.ModuleList([MLPCritic(input_shape, output_shape, self.args)])
         else:
-            input_shape = self.obs_dim + self.act_dim
-            output_shape = 1
-            self.value_dicts = nn.ModuleList( [ TransformerCritic(input_shape, self.args) ] )
+            NotImplementedError()
 
     def construct_auxiliary_net(self):
         if self.args.auxiliary:
@@ -122,6 +129,7 @@ class ICSTRANSMADDPG(Model):
 
         if self.args.shared_params:
             enc_obs, _, _ = self.encode(raw_obs)
+            # _, _, enc_obs = self.encode(raw_obs)
             agent_policy = self.policy_dicts[0]
             means, log_stds, hiddens = agent_policy(enc_obs, last_hid)
             # hiddens = th.stack(hiddens, dim=1)
@@ -163,11 +171,15 @@ class ICSTRANSMADDPG(Model):
             obs_reshape = obs.contiguous()
             act_reshape = act.contiguous()
             inputs = th.cat( (obs_reshape, act_reshape), dim=-1 )   # (b, n, o+a)
+            if self.args.critic_type == "mlp":
+                inputs = inputs.view(batch_size, -1)
 
         if self.args.shared_params:
             agent_value = self.value_dicts[0]
             values, costs = agent_value(inputs)
             values = values.contiguous().unsqueeze(dim=-1).repeat(1, self.n_, 1).view(batch_size, self.n_, 1)
+            if self.args.critic_type == "mlp":
+                costs = th.zeros_like(values)
             costs = costs.contiguous().view(batch_size, self.n_, 1)
         else:
             NotImplementedError()

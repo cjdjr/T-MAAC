@@ -11,9 +11,9 @@ from critics.transformer_critic import TransformerCritic
 from critics.transformer_encoder_adj import TransformerEncoder
 
 
-class CSTRANSMADDPG(Model):
+class CSTRANSTRANSMADDPG(Model):
     def __init__(self, args, target_net=None):
-        super(CSTRANSMADDPG, self).__init__(args)
+        super(CSTRANSTRANSMADDPG, self).__init__(args)
         self.cs_num = 1
         self.multiplier = th.nn.Parameter(th.tensor([args.init_lambda for _ in range(self.cs_num)],device=self.device))
         self.upper_bound = args.upper_bound

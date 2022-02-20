@@ -39,7 +39,7 @@ class SafeMADDPG(MADDPG):
 
         return x, UNCHANGED
 
-    def correct_actions_soft(self, state, actions, k, lb, ub):
+    def correct_actions_soft(self, state, actions, k, lb, ub, pv_index):
         '''
         q = k * a
         '''
@@ -47,6 +47,8 @@ class SafeMADDPG(MADDPG):
         with th.no_grad():
             weight, bias = self.constraint_model.get_coff(state, q)
         weight = weight * k
+        weight = weight[pv_index]
+        bias = bias[pv_index]
         actions_numpy = actions.detach().squeeze().cpu().numpy()
         action_dim = actions_numpy.shape[0]
         P = np.eye(action_dim)
