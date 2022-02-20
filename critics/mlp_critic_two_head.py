@@ -7,9 +7,9 @@ WEEKDAY_EMB = 8
 # HOUR_EMB = 4
 # MINUTE_EMB = 4
 
-class MLPCritic(nn.Module):
+class MLPTWOHEADCritic(nn.Module):
     def __init__(self, input_shape, output_shape, args, date_emb=False):
-        super(MLPCritic, self).__init__()
+        super(MLPTWOHEADCritic, self).__init__()
         self.args = args
         self.date_emb = date_emb
         # Easiest to reuse hid_size variable
@@ -22,6 +22,7 @@ class MLPCritic(nn.Module):
             
         self.fc2 = nn.Linear(args.hid_size, args.hid_size)
         self.fc3 = nn.Linear(args.hid_size, output_shape)
+        self.fc4 = nn.Linear(args.hid_size, output_shape)
         if self.date_emb:
             self.month_embed_layer = nn.Embedding(12+1, MONTH_EMB)
             # self.day_embed_layer = nn.Embedding(31+1, DAY_EMB)
@@ -38,7 +39,7 @@ class MLPCritic(nn.Module):
         # make hidden states on same device as model
         return self.fc1.weight.new(1, self.args.hid_size).zero_()
 
-    def forward(self, inputs, hidden_state=None):
+    def forward(self, inputs, hidden_state):
         if self.date_emb:
             month_embedding = self.month_embed_layer(inputs[:,0].long())
             # day_embedding = self.day_embed_layer(inputs[:,1].long())
@@ -55,4 +56,5 @@ class MLPCritic(nn.Module):
         x = self.hid_activation(x)
         h = self.hid_activation(self.fc2(x))
         v = self.fc3(h)
-        return v, h
+        c = self.fc4(h)
+        return (v,c), h
