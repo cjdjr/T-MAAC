@@ -147,6 +147,7 @@ models/safe_maddpg.py
 models/totq_transmaddpg.py
 models/trans_maddpg.py
 transition/
+*.sh
 
 
 
