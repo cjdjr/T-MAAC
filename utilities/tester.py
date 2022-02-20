@@ -107,27 +107,26 @@ class PGTester(object):
             # reset env
             state, global_state = self.env.manual_reset(test_data.iloc[epi]['day_id'],23,2)
             month = test_data.iloc[epi]['month']
-            if month > 1:
-                break
 
             # init hidden states
             last_hid = self.behaviour_net.policy_dicts[0].init_hidden()
-
+            result = {}
             for t in range(self.args.max_steps):
                 if self.render:
                     self.env.render()
                     time.sleep(0.01)
                 state_ = prep_obs(state).contiguous().view(1, self.n_, self.obs_dim).to(self.device)
-                action, _, _, _, hid = self.behaviour_net.get_actions(state_, status='test', exploration=False, actions_avail=th.tensor(self.env.get_avail_actions()), target=False, last_hid=last_hid)
+                with th.no_grad():
+                    action, _, _, _, hid = self.behaviour_net.get_actions(state_, status='test', exploration=False, actions_avail=th.tensor(self.env.get_avail_actions()), target=False, last_hid=last_hid)
                 _, actual = translate_action(self.args, action, self.env)
                 reward, done, info = self.env.step(actual, add_noise=False)
                 done_ = done or t==self.args.max_steps-1
                 next_state = self.env.get_obs()
                 for k, v in info.items():
-                    if 'mean_test_'+k not in test_results[month].keys():
-                        test_results[month]['mean_test_'+k] = [v]
+                    if 'mean_test_'+k not in result.keys():
+                        result['mean_test_'+k] = [v]
                     else:
-                        test_results[month]['mean_test_'+k].append(v)
+                        result['mean_test_'+k].append(v)
                 # set the next state
                 state = next_state
                 # set the next last_hid
@@ -135,6 +134,11 @@ class PGTester(object):
                 if done_:
                     break
             print (f"This is the test episode: {epi}")
+            for k,v in result.items():
+                if k not in test_results[month].keys():
+                    test_results[month][k] = [np.mean(v)]
+                else:
+                    test_results[month][k].append(np.mean(v))
         for month in range(1,13):
             for k, v in test_results[month].items():
                 test_results[month][k] = (np.mean(v), 2 * np.std(v))

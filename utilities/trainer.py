@@ -31,21 +31,33 @@ class PGTrainer(object):
             else:
                 self.replay_buffer = EpisodeReplayBuffer( int(self.args.replay_buffer_size) )
         self.env = env
+        # policy optim
+        params = []
+        params.append({'params': self.behaviour_net.policy_dicts.parameters(), 'lr':args.policy_lrate})
         if self.args.encoder:
-            # {'params': self.behaviour_net.encoder.parameters(), 'lr':args.encoder_lrate}
-            self.policy_optimizer = optim.RMSprop( [{'params': self.behaviour_net.policy_dicts.parameters(), 'lr':args.policy_lrate}, {'params': self.behaviour_net.encoder.parameters(), 'lr':args.encoder_lrate}], alpha=0.99, eps=1e-5 )
-            self.value_optimizer = optim.RMSprop( [{'params': self.behaviour_net.value_dicts.parameters(), 'lr':args.value_lrate}, {'params': self.behaviour_net.encoder.parameters(), 'lr':args.encoder_lrate}], alpha=0.99, eps=1e-5 )
+            params.append({'params': self.behaviour_net.encoder.parameters(), 'lr':args.encoder_lrate})
+        self.policy_optimizer = optim.RMSprop(params, alpha=0.99, eps=1e-5)
+        # value optim
+        params = []
+        if hasattr(self.behaviour_net.value_dicts[0], 'cost_head'):
+            cost_head_params = list(map(id, self.behaviour_net.value_dicts[0].cost_head.parameters()))
+            other_params = filter(lambda p: id(p) not in cost_head_params, self.behaviour_net.value_dicts.parameters())
+            params.append({'params': other_params, 'lr':args.value_lrate})
+            params.append({'params': self.behaviour_net.value_dicts[0].cost_head.parameters(), 'lr':args.cost_head_lrate})
         else:
-            self.policy_optimizer = optim.RMSprop( self.behaviour_net.policy_dicts.parameters(), lr=args.policy_lrate, alpha=0.99, eps=1e-5 )
-            self.value_optimizer = optim.RMSprop( self.behaviour_net.value_dicts.parameters(), lr=args.value_lrate, alpha=0.99, eps=1e-5 ) 
+            params.append({'params': self.behaviour_net.value_dicts.parameters(), 'lr':args.value_lrate})
+        if self.args.encoder:
+            params.append({'params': self.behaviour_net.encoder.parameters(), 'lr':args.encoder_lrate})
+        self.value_optimizer = optim.RMSprop(params, alpha=0.99, eps=1e-5)
+        # mixer optim
         if self.args.mixer:
             self.mixer_optimizer = optim.RMSprop( self.behaviour_net.mixer.parameters(), lr=args.mixer_lrate, alpha=0.99, eps=1e-5 )
         if self.args.multiplier:
             params = []
             params.append({'params': self.behaviour_net.multiplier, 'lr' : args.lambda_lrate})
-            if self.args.encoder:
-                params.append({'params': self.behaviour_net.encoder.parameters(), 'lr':args.encoder_lrate})
             if hasattr(self.behaviour_net, "cost_dicts"):
+                if self.args.encoder:
+                    params.append({'params': self.behaviour_net.encoder.parameters(), 'lr':args.encoder_lrate})
                 params.append({'params': self.behaviour_net.cost_dicts.parameters(), 'lr' : args.value_lrate})
             self.lambda_optimizer = optim.RMSprop(params, alpha=0.99, eps=1e-5)
         if self.args.auxiliary:
