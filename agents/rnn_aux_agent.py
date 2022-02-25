@@ -1,6 +1,7 @@
 import torch.nn as nn
 import torch
 
+
 class RNNAgent(nn.Module):
     def __init__(self, input_shape, args):
         super(RNNAgent, self).__init__()
@@ -12,7 +13,7 @@ class RNNAgent(nn.Module):
         self.rnn = nn.GRUCell(args.hid_size, args.hid_size)
         self.fc2 = nn.Linear(args.hid_size, args.action_dim)
         self.aux_head = nn.Linear(args.hid_size, 1)
-        
+
         if self.args.hid_activation == 'relu':
             self.hid_activation = nn.ReLU()
         elif self.args.hid_activation == 'tanh':
@@ -31,4 +32,4 @@ class RNNAgent(nn.Module):
         h = self.rnn(x, h_in)
         a = self.fc2(h)
         pred_aux = self.aux_head(h)
-        return (a,pred_aux), None, h
+        return (a, pred_aux), None, h

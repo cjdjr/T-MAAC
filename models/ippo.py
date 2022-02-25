@@ -27,7 +27,7 @@ class IPPO(Model):
             self.value_dicts = nn.ModuleList( [ MLPCritic(input_shape, output_shape, self.args) ] )
         else:
             self.value_dicts = nn.ModuleList( [ MLPCritic(input_shape, output_shape, self.args) for _ in range(self.n_) ] )
-        
+
     def construct_model(self):
         self.construct_value_net()
         self.construct_policy_net()
@@ -55,7 +55,7 @@ class IPPO(Model):
                 value, _ = agent_value(inputs[:, i, :], None)
                 values.append(value)
             values = th.stack(values, dim=1)
-            
+
         return values
 
     def get_actions(self, state, status, exploration, actions_avail, target=False, last_hid=None):

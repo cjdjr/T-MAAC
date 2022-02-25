@@ -6,7 +6,6 @@ import six
 from gym import error
 
 
-
 try:
     import pyglet
 except ImportError as e:
@@ -105,13 +104,14 @@ class Viewer(object):
 
     def _display_network(self, env):
         env.res_pf_plot()
-        img_net = pyglet.image.load(os.path.join(self.fig_path, "pf_res_plot.jpeg"))
+        img_net = pyglet.image.load(os.path.join(
+            self.fig_path, "pf_res_plot.jpeg"))
         batch = pyglet.graphics.Batch()
         psp = pyglet.sprite.Sprite(img_net,
                                    0,
                                    0,
-                                   batch=batch,    
-                                )
+                                   batch=batch,
+                                   )
         psp.scale_y = 0.8
         psp.scale_x = 0.86
         psp.update()

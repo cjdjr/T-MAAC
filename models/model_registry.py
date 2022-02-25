@@ -36,7 +36,7 @@ Model = dict(maddpg=MADDPG,
              icstransmaddpg=ICSTRANSMADDPG,
              icstransmatd3=ICSTRANSMATD3,
              cstransmaddpg=CSTRANSMADDPG,
-            )
+             )
 
 Strategy = dict(maddpg='pg',
                 sqddpg='pg',
@@ -57,4 +57,4 @@ Strategy = dict(maddpg='pg',
                 icstransmaddpg='pg',
                 icstransmatd3='pg',
                 cstransmaddpg='pg',
-            )
+                )

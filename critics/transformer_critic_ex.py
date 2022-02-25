@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
+
 def multi_head_attention(q, k, v, mask=None):
     # q shape = (B, n_heads, n, key_dim)   : n can be either 1 or N
     # k,v shape = (B, n_heads, N, key_dim)
@@ -21,9 +22,11 @@ def multi_head_attention(q, k, v, mask=None):
     attn = th.matmul(F.softmax(score, dim=3), v).transpose(1, 2)
     return attn.reshape(*shp)
 
+
 def make_heads(qkv, n_heads):
     shp = (qkv.size(0), qkv.size(1), n_heads, -1)
     return qkv.reshape(*shp).transpose(1, 2)
+
 
 class EncoderLayer(nn.Module):
     def __init__(self, embedding_dim, n_heads=8):
@@ -60,13 +63,14 @@ class TransformerCritic(nn.Module):
         # self.out_hidden_dim = args.out_hid_size
         self.attend_heads = args.attend_heads
         assert (self.hidden_dim % self.attend_heads) == 0
-        self.n_ =  args.agent_num
+        self.n_ = args.agent_num
         self.n_layers = args.n_layers
         self.attend_heads = args.attend_heads
         self.args = args
         self.init_projection_layer = nn.Linear(input_shape, self.hidden_dim)
         self.attn_layers = nn.ModuleList([
-            EncoderLayer(embedding_dim=self.hidden_dim, n_heads=self.attend_heads)
+            EncoderLayer(embedding_dim=self.hidden_dim,
+                         n_heads=self.attend_heads)
             for _ in range(self.n_layers)
         ])
         self.reward_head = nn.Sequential(
@@ -91,6 +95,7 @@ class TransformerCritic(nn.Module):
         x = self.init_projection_layer(obs)
         for layer in self.attn_layers:
             x = layer(x)
-        pred_r = self.reward_head(x.view(-1, self.n_ * self.hidden_dim))    # (b, 1)
+        pred_r = self.reward_head(
+            x.view(-1, self.n_ * self.hidden_dim))    # (b, 1)
         pred_c = self.cost_head(x)  # (b,n,1)
         return pred_r, pred_c

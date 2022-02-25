@@ -4,11 +4,11 @@ import torch.nn.functional as F
 import numpy as np
 
 
-
 class QMixer(nn.Module):
     """
     refer to https://github.com/oxwhirl/comix/blob/main/src/modules/mixers/qmix.py
     """
+
     def __init__(self, args):
         super(QMixer, self).__init__()
 
@@ -20,7 +20,8 @@ class QMixer(nn.Module):
         self.embed_dim = args.mixing_embed_dim
         self.q_embed_dim = getattr(self.args, "q_embed_dim", 1)
 
-        self.hyper_w_1 = nn.Linear(self.state_dim, self.embed_dim * self.n_agents * self.q_embed_dim)
+        self.hyper_w_1 = nn.Linear(
+            self.state_dim, self.embed_dim * self.n_agents * self.q_embed_dim)
         self.hyper_w_final = nn.Linear(self.state_dim, self.embed_dim)
 
         if getattr(self.args, "hypernet_layers", 1) > 1:

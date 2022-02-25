@@ -81,7 +81,8 @@ def pf_res_plotly(net, cmap="Jet", use_line_geodata=None, on_map=False, projecti
     """
     version_check()
     if 'res_bus' not in net or net.get('res_bus').shape[0] == 0:
-        logger.warning('There are no Power Flow results. A Newton-Raphson power flow will be executed.')
+        logger.warning(
+            'There are no Power Flow results. A Newton-Raphson power flow will be executed.')
         runpp(net)
 
     # create geocoord if none are available
@@ -94,11 +95,12 @@ def pf_res_plotly(net, cmap="Jet", use_line_geodata=None, on_map=False, projecti
                        " This may take some time")
         create_generic_coordinates(net, respect_switches=True)
         if on_map:
-            logger.warning("Map plots not available with artificial coordinates and will be disabled!")
+            logger.warning(
+                "Map plots not available with artificial coordinates and will be disabled!")
             on_map = False
     for geo_type in ["bus_geodata", "line_geodata"]:
         dupl_geo_idx = pd.Series(net[geo_type].index)[pd.Series(
-                net[geo_type].index).duplicated()]
+            net[geo_type].index).duplicated()]
         if len(dupl_geo_idx):
             if len(dupl_geo_idx) > 20:
                 logger.warning("In net.%s are %i duplicated " % (geo_type, len(dupl_geo_idx)) +
@@ -106,8 +108,7 @@ def pf_res_plotly(net, cmap="Jet", use_line_geodata=None, on_map=False, projecti
             else:
                 logger.warning("In net.%s are the following duplicated " % geo_type +
                                "indices. That can cause troubles for draw_traces(): " + str(
-                               dupl_geo_idx))
-
+                                   dupl_geo_idx))
 
     # check if geodata are real geographycal lat/lon coordinates using geopy
     if on_map and projection is not None:
@@ -118,10 +119,10 @@ def pf_res_plotly(net, cmap="Jet", use_line_geodata=None, on_map=False, projecti
     # hoverinfo which contains name and pf results
     precision = 3
     hoverinfo = (
-            net.bus.name.astype(str) + '<br />' +
-            'V_m = ' + net.res_bus.vm_pu.round(precision).astype(str) + ' pu' + '<br />' +
-            'V_m = ' + (net.res_bus.vm_pu * net.bus.vn_kv.round(2)).round(precision).astype(str) + ' kV' + '<br />' +
-            'V_a = ' + net.res_bus.va_degree.round(precision).astype(str) + ' deg').tolist()
+        net.bus.name.astype(str) + '<br />' +
+        'V_m = ' + net.res_bus.vm_pu.round(precision).astype(str) + ' pu' + '<br />' +
+        'V_m = ' + (net.res_bus.vm_pu * net.bus.vn_kv.round(2)).round(precision).astype(str) + ' kV' + '<br />' +
+        'V_a = ' + net.res_bus.va_degree.round(precision).astype(str) + ' deg').tolist()
     hoverinfo = pd.Series(index=net.bus.index, data=hoverinfo)
     bus_trace = create_bus_trace(net, net.bus.index, size=bus_size, infofunc=hoverinfo, cmap=cmap,
                                  cbar_title='Bus Voltage [pu]', cmin=climits_volt[0], cmax=climits_volt[1],
@@ -134,14 +135,15 @@ def pf_res_plotly(net, cmap="Jet", use_line_geodata=None, on_map=False, projecti
     if use_line_geodata is None:
         use_line_geodata = False if len(net.line_geodata) == 0 else True
     elif use_line_geodata and len(net.line_geodata) == 0:
-        logger.warning("No or insufficient line geodata available --> only bus geodata will be used.")
+        logger.warning(
+            "No or insufficient line geodata available --> only bus geodata will be used.")
         use_line_geodata = False
     # hoverinfo which contains name and pf results
     hoverinfo = (
-            net.line.name.astype(str) + '<br />' +
-            'I = ' + net.res_line.loading_percent.round(precision).astype(str) + ' %' + '<br />' +
-            'I_from = ' + net.res_line.i_from_ka.round(precision).astype(str) + ' kA' + '<br />' +
-            'I_to = ' + net.res_line.i_to_ka.round(precision).astype(str) + ' kA' + '<br />').tolist()
+        net.line.name.astype(str) + '<br />' +
+        'I = ' + net.res_line.loading_percent.round(precision).astype(str) + ' %' + '<br />' +
+        'I_from = ' + net.res_line.i_from_ka.round(precision).astype(str) + ' kA' + '<br />' +
+        'I_to = ' + net.res_line.i_to_ka.round(precision).astype(str) + ' kA' + '<br />').tolist()
     hoverinfo = pd.Series(index=net.line.index, data=hoverinfo)
     line_traces = create_line_trace(net, use_line_geodata=use_line_geodata, respect_switches=True,
                                     width=line_width,
@@ -157,10 +159,10 @@ def pf_res_plotly(net, cmap="Jet", use_line_geodata=None, on_map=False, projecti
     # ----- Trafos ------
     # hoverinfo which contains name and pf results
     hoverinfo = (
-            net.trafo.name.astype(str) + '<br />' +
-            'I = ' + net.res_trafo.loading_percent.round(precision).astype(str) + ' %' + '<br />' +
-            'I_hv = ' + net.res_trafo.i_hv_ka.round(precision).astype(str) + ' kA' + '<br />' +
-            'I_lv = ' + net.res_trafo.i_lv_ka.round(precision).astype(str) + ' kA' + '<br />').tolist()
+        net.trafo.name.astype(str) + '<br />' +
+        'I = ' + net.res_trafo.loading_percent.round(precision).astype(str) + ' %' + '<br />' +
+        'I_hv = ' + net.res_trafo.i_hv_ka.round(precision).astype(str) + ' kA' + '<br />' +
+        'I_lv = ' + net.res_trafo.i_lv_ka.round(precision).astype(str) + ' kA' + '<br />').tolist()
     hoverinfo = pd.Series(index=net.trafo.index, data=hoverinfo)
     trafo_traces = create_trafo_trace(net, width=line_width * 1.5, infofunc=hoverinfo,
                                       cmap=cmap_lines, cmin=0, cmax=100)

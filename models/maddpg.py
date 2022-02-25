@@ -67,7 +67,7 @@ class MADDPG(Model):
         agent_ids = th.eye(self.n_).unsqueeze(0).repeat(batch_size, 1, 1).to(self.device) # shape = (b, n, n)
         if self.args.agent_id:
             obs_reshape = th.cat( (obs_reshape, agent_ids), dim=-1 ) # shape = (b, n, n*o+n)
-        
+
         # make up inputs
         act_repeat = act.unsqueeze(1).repeat(1, self.n_, 1, 1) # shape = (b, n, n, a)
         act_mask_others = agent_ids.unsqueeze(-1) # shape = (b, n, n, 1)

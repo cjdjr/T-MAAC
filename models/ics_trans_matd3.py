@@ -50,7 +50,7 @@ class ICSTRANSMATD3(Model):
             self.target_net = target_net
             self.reload_params_to_target()
         self.batchnorm = nn.BatchNorm1d(self.args.agent_num).to(self.device)
-        
+
     def construct_policy_net(self):
         # transformer encoder + mlp head
         if self.args.agent_type == 'transformer':
@@ -155,7 +155,7 @@ class ICSTRANSMATD3(Model):
             else:
                 with th.no_grad():
                     emb_agent_glimpsed, _, emb = self.encode(obs)
-                    
+
             if self.args.use_emb == "glimpsed":
                 obs = emb_agent_glimpsed
             elif self.args.use_emb == "mean":
@@ -268,7 +268,7 @@ class ICSTRANSMATD3(Model):
     def get_auxiliary_loss(self, batch):
         batch_size = len(batch.state)
         state, actions, old_log_prob_a, old_values, old_next_values, rewards, cost, next_state, done, last_step, actions_avail, last_hids, hids = self.unpack_data(batch)
-        
+
         obs = state.view(batch_size, self.n_, self.obs_bus_num, self.obs_bus_dim).contiguous() # (b*n, self.obs_bus_num, self.obs_bus_dim)
         with th.no_grad():
             label = self._cal_out_of_control(obs.view(batch_size*self.n_, self.obs_bus_num, self.obs_bus_dim))

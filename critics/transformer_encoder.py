@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
+
 def multi_head_attention(q, k, v, mask=None):
     # q shape = (B, n_heads, n, key_dim)   : n can be either 1 or N
     # k,v shape = (B, n_heads, N, key_dim)
@@ -21,9 +22,11 @@ def multi_head_attention(q, k, v, mask=None):
     attn = th.matmul(F.softmax(score, dim=3), v).transpose(1, 2)
     return attn.reshape(*shp)
 
+
 def make_heads(qkv, n_heads):
     shp = (qkv.size(0), qkv.size(1), n_heads, -1)
     return qkv.reshape(*shp).transpose(1, 2)
+
 
 class EncoderLayer(nn.Module):
     def __init__(self, embedding_dim, n_heads=8):
@@ -71,7 +74,8 @@ class TransformerEncoder(nn.Module):
         # self.final_projection_layer = nn.Linear(args.enc_hid_size, args.out_hid_size)
         self.Wq = nn.Linear(self.hidden_dim, self.hidden_dim, bias=False)
         self.attn_layers = nn.ModuleList([
-            EncoderLayer(embedding_dim=self.hidden_dim, n_heads=self.attend_heads)
+            EncoderLayer(embedding_dim=self.hidden_dim,
+                         n_heads=self.attend_heads)
             for _ in range(self.n_layers)
         ])
         if args.layernorm:
@@ -81,14 +85,15 @@ class TransformerEncoder(nn.Module):
             self.pred_fc1 = nn.ModuleList()
             self.pred_fc2 = nn.ModuleList()
             for i in range(self.nagents):
-                self.pred_fc1.append(nn.Linear(self.hidden_dim + self.nagents*self.action_dim, self.hidden_dim))
-                self.pred_fc2.append(nn.Linear(self.hidden_dim, predict_dim[i]))
+                self.pred_fc1.append(
+                    nn.Linear(self.hidden_dim + self.nagents*self.action_dim, self.hidden_dim))
+                self.pred_fc2.append(
+                    nn.Linear(self.hidden_dim, predict_dim[i]))
 
         if args.hid_activation == 'relu':
             self.hid_activation = nn.ReLU()
         elif args.hid_activation == 'tanh':
             self.hid_activation = nn.Tanh()
-
 
     def forward(self, obs, mask=None):
         # obs : (b*n, self.obs_num, self.obs_dim)
@@ -100,14 +105,15 @@ class TransformerEncoder(nn.Module):
         # x = x.mean(dim=1)
         global_info = x.mean(dim=1, keepdim=True)
         glimpse_q = self.Wq(global_info)
-        score = th.matmul(glimpse_q, x.transpose(1,2)) / np.sqrt(self.hidden_dim)
+        score = th.matmul(glimpse_q, x.transpose(1, 2)) / \
+            np.sqrt(self.hidden_dim)
         score = F.softmax(score+mask, dim=2)
         final_embedding = th.matmul(score, x)
         return final_embedding.squeeze(dim=1)
 
     def predict_voltage(self, enc, act, agent_id):
         B = enc.shape[0]
-        x = th.cat((enc,act.view(B,-1)),dim=-1)
+        x = th.cat((enc, act.view(B, -1)), dim=-1)
         x = self.hid_activation(self.pred_fc1[agent_id](x))
         x = self.pred_fc2[agent_id](x)
         return x

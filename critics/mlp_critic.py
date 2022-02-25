@@ -7,6 +7,7 @@ WEEKDAY_EMB = 8
 # HOUR_EMB = 4
 # MINUTE_EMB = 4
 
+
 class MLPCritic(nn.Module):
     def __init__(self, input_shape, output_shape, args, date_emb=False):
         super(MLPCritic, self).__init__()
@@ -14,12 +15,13 @@ class MLPCritic(nn.Module):
         self.date_emb = date_emb
         # Easiest to reuse hid_size variable
         if self.date_emb:
-            self.fc1 = nn.Linear(input_shape -2 + MONTH_EMB + WEEKDAY_EMB  , args.hid_size)
+            self.fc1 = nn.Linear(
+                input_shape - 2 + MONTH_EMB + WEEKDAY_EMB, args.hid_size)
         else:
             self.fc1 = nn.Linear(input_shape, args.hid_size)
         if args.layernorm:
             self.layernorm = nn.LayerNorm(args.hid_size)
-            
+
         self.fc2 = nn.Linear(args.hid_size, args.hid_size)
         self.fc3 = nn.Linear(args.hid_size, output_shape)
         if self.date_emb:
@@ -40,13 +42,14 @@ class MLPCritic(nn.Module):
 
     def forward(self, inputs, hidden_state=None):
         if self.date_emb:
-            month_embedding = self.month_embed_layer(inputs[:,0].long())
+            month_embedding = self.month_embed_layer(inputs[:, 0].long())
             # day_embedding = self.day_embed_layer(inputs[:,1].long())
-            weekday_embedding = self.weekday_embed_layer(inputs[:,1].long())
+            weekday_embedding = self.weekday_embed_layer(inputs[:, 1].long())
             # hour_embedding = self.hour_embed_layer(inputs[:,3].long())
             # minute_embedding = self.minute_embed_layer(inputs[:,4].long())
-            dense_input = inputs[:,self.args.date_dim:]
-            x = th.cat([dense_input, month_embedding, weekday_embedding], dim=-1)
+            dense_input = inputs[:, self.args.date_dim:]
+            x = th.cat([dense_input, month_embedding,
+                       weekday_embedding], dim=-1)
         else:
             x = inputs
         x = self.fc1(x)

@@ -2,7 +2,6 @@ import torch as th
 import torch.nn as nn
 
 
-
 class RNNAgent(nn.Module):
     def __init__(self, input_shape, args):
         super(RNNAgent, self).__init__()
@@ -15,7 +14,7 @@ class RNNAgent(nn.Module):
         # self.fc2 = nn.Linear(args.hid_size, args.action_dim)
         self.mean = nn.Linear(args.hid_size, args.action_dim)
         self.log_std = nn.Linear(args.hid_size, args.action_dim)
-        
+
         if self.args.hid_activation == 'relu':
             self.hid_activation = nn.ReLU()
         elif self.args.hid_activation == 'tanh':
@@ -37,5 +36,7 @@ class RNNAgent(nn.Module):
         # mean = th.tanh(self.mean(h))
         log_std = self.log_std(h)
         log_std = th.tanh(log_std)
-        log_std = self.args.LOG_STD_MIN + 0.5 * (self.args.LOG_STD_MAX - self.args.LOG_STD_MIN) * (log_std + 1) # From SpinUp / Denis Yarats
+        log_std = self.args.LOG_STD_MIN + 0.5 * \
+            (self.args.LOG_STD_MAX - self.args.LOG_STD_MIN) * \
+            (log_std + 1)  # From SpinUp / Denis Yarats
         return mean, log_std, h

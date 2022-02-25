@@ -37,7 +37,7 @@ class AttentionCritic(nn.Module):
         self.state_encoders = nn.ModuleList()
         # iterate over agents
         for sdim, adim in self.sa_sizes:
-            idim = sdim + adim 
+            idim = sdim + adim
             if args.continuous:
                 odim = 1
             else:

@@ -1,5 +1,6 @@
 import torch.nn as nn
 
+
 class TransformerAgent(nn.Module):
     # sa_sizes, hidden_dim=32, norm_in=True, attend_heads=1
     def __init__(self, args):

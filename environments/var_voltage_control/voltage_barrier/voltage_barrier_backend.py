@@ -1,7 +1,6 @@
 from .voltage_barrier_registry import Voltage_Barrier
 
 
-
 class VoltageBarrier(object):
     def __init__(self, name):
         self.name = name

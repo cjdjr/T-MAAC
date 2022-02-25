@@ -19,7 +19,7 @@ class MLPTWOHEADCritic(nn.Module):
             self.fc1 = nn.Linear(input_shape, args.hid_size)
         if args.layernorm:
             self.layernorm = nn.LayerNorm(args.hid_size)
-            
+
         self.fc2 = nn.Linear(args.hid_size, args.hid_size)
         self.fc3 = nn.Linear(args.hid_size, output_shape)
         self.fc4 = nn.Linear(args.hid_size, output_shape)

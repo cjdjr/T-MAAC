@@ -8,76 +8,96 @@ import wandb
 
 
 class PGTrainer(object):
-    def __init__(self, args, model, env, logger, constraint_model = None):
+    def __init__(self, args, model, env, logger, constraint_model=None):
         self.args = args
-        self.device = th.device( "cuda" if th.cuda.is_available() and self.args.cuda else "cpu" )
+        self.device = th.device(
+            "cuda" if th.cuda.is_available() and self.args.cuda else "cpu")
         self.logger = logger
         self.episodic = self.args.episodic
         self.constraint_model = constraint_model
         if self.args.target:
             target_net = model(self.args).to(self.device)
             if constraint_model is not None:
-                self.behaviour_net = model(self.args, target_net, constraint_model = constraint_model).to(self.device)
+                self.behaviour_net = model(
+                    self.args, target_net, constraint_model=constraint_model).to(self.device)
             else:
-                self.behaviour_net = model(self.args, target_net).to(self.device)
+                self.behaviour_net = model(
+                    self.args, target_net).to(self.device)
         else:
             if constraint_model is not None:
-                self.behaviour_net = model(self.args, constraint_model = constraint_model).to(self.device)
+                self.behaviour_net = model(
+                    self.args, constraint_model=constraint_model).to(self.device)
             else:
                 self.behaviour_net = model(self.args).to(self.device)
         if self.args.replay:
             if not self.episodic:
-                self.replay_buffer = TransReplayBuffer( int(self.args.replay_buffer_size) )
+                self.replay_buffer = TransReplayBuffer(
+                    int(self.args.replay_buffer_size))
             else:
-                self.replay_buffer = EpisodeReplayBuffer( int(self.args.replay_buffer_size) )
+                self.replay_buffer = EpisodeReplayBuffer(
+                    int(self.args.replay_buffer_size))
         self.env = env
         # policy optim
         params = []
-        params.append({'params': self.behaviour_net.policy_dicts.parameters(), 'lr':args.policy_lrate})
+        params.append(
+            {'params': self.behaviour_net.policy_dicts.parameters(), 'lr': args.policy_lrate})
         if self.args.encoder:
-            params.append({'params': self.behaviour_net.encoder.parameters(), 'lr':args.encoder_lrate})
+            params.append(
+                {'params': self.behaviour_net.encoder.parameters(), 'lr': args.encoder_lrate})
         self.policy_optimizer = optim.RMSprop(params, alpha=0.99, eps=1e-5)
         # value optim
         params = []
         if hasattr(self.behaviour_net.value_dicts[0], 'cost_head'):
-            cost_head_params = list(map(id, self.behaviour_net.value_dicts[0].cost_head.parameters()))
-            other_params = filter(lambda p: id(p) not in cost_head_params, self.behaviour_net.value_dicts.parameters())
-            params.append({'params': other_params, 'lr':args.value_lrate})
-            params.append({'params': self.behaviour_net.value_dicts[0].cost_head.parameters(), 'lr':args.cost_head_lrate})
+            cost_head_params = list(
+                map(id, self.behaviour_net.value_dicts[0].cost_head.parameters()))
+            other_params = filter(lambda p: id(
+                p) not in cost_head_params, self.behaviour_net.value_dicts.parameters())
+            params.append({'params': other_params, 'lr': args.value_lrate})
+            params.append({'params': self.behaviour_net.value_dicts[0].cost_head.parameters(
+            ), 'lr': args.cost_head_lrate})
         else:
-            params.append({'params': self.behaviour_net.value_dicts.parameters(), 'lr':args.value_lrate})
+            params.append(
+                {'params': self.behaviour_net.value_dicts.parameters(), 'lr': args.value_lrate})
         if self.args.encoder:
-            params.append({'params': self.behaviour_net.encoder.parameters(), 'lr':args.encoder_lrate})
+            params.append(
+                {'params': self.behaviour_net.encoder.parameters(), 'lr': args.encoder_lrate})
         self.value_optimizer = optim.RMSprop(params, alpha=0.99, eps=1e-5)
         # mixer optim
         if self.args.mixer:
-            self.mixer_optimizer = optim.RMSprop( self.behaviour_net.mixer.parameters(), lr=args.mixer_lrate, alpha=0.99, eps=1e-5 )
+            self.mixer_optimizer = optim.RMSprop(
+                self.behaviour_net.mixer.parameters(), lr=args.mixer_lrate, alpha=0.99, eps=1e-5)
         if self.args.multiplier:
             params = []
-            params.append({'params': self.behaviour_net.multiplier, 'lr' : args.lambda_lrate})
+            params.append(
+                {'params': self.behaviour_net.multiplier, 'lr': args.lambda_lrate})
             if hasattr(self.behaviour_net, "cost_dicts"):
                 if self.args.encoder:
-                    params.append({'params': self.behaviour_net.encoder.parameters(), 'lr':args.encoder_lrate})
-                params.append({'params': self.behaviour_net.cost_dicts.parameters(), 'lr' : args.value_lrate})
+                    params.append(
+                        {'params': self.behaviour_net.encoder.parameters(), 'lr': args.encoder_lrate})
+                params.append(
+                    {'params': self.behaviour_net.cost_dicts.parameters(), 'lr': args.value_lrate})
             self.lambda_optimizer = optim.RMSprop(params, alpha=0.99, eps=1e-5)
         if self.args.auxiliary:
             assert self.args.encoder == True
-            self.auxiliary_optimizer = optim.RMSprop( [{'params': self.behaviour_net.auxiliary_dicts.parameters(), 'lr':args.auxiliary_lrate}, {'params': self.behaviour_net.encoder.parameters(), 'lr':args.auxiliary_lrate}], alpha=0.99, eps=1e-5 )
-        
-        self.init_action = th.zeros(1, self.args.agent_num, self.args.action_dim).to(self.device)
+            self.auxiliary_optimizer = optim.RMSprop([{'params': self.behaviour_net.auxiliary_dicts.parameters(), 'lr': args.auxiliary_lrate}, {
+                                                     'params': self.behaviour_net.encoder.parameters(), 'lr': args.auxiliary_lrate}], alpha=0.99, eps=1e-5)
+
+        self.init_action = th.zeros(
+            1, self.args.agent_num, self.args.action_dim).to(self.device)
         self.steps = 0
         self.episodes = 0
         self.entr = self.args.entr
 
     def get_loss(self, batch):
-        policy_loss, value_loss, logits, lambda_loss = self.behaviour_net.get_loss(batch)
+        policy_loss, value_loss, logits, lambda_loss = self.behaviour_net.get_loss(
+            batch)
         return policy_loss, value_loss, logits, lambda_loss
 
     def policy_compute_grad(self, stat, loss, retain_graph):
         if self.entr > 0:
             if self.args.continuous:
                 policy_loss, means, log_stds = loss
-                entropy = normal_entropy( means, log_stds.exp() )
+                entropy = normal_entropy(means, log_stds.exp())
             else:
                 policy_loss, logits = loss
                 entropy = multinomial_entropy(logits)
@@ -90,7 +110,8 @@ class PGTrainer(object):
 
     def grad_clip(self, params):
         for param in params:
-            param.grad.data.clamp_(-self.args.grad_clip_eps, self.args.grad_clip_eps)
+            param.grad.data.clamp_(-self.args.grad_clip_eps,
+                                   self.args.grad_clip_eps)
 
     def policy_replay_process(self, stat):
         batch = self.replay_buffer.get_batch(self.args.batch_size)
@@ -125,13 +146,15 @@ class PGTrainer(object):
             policy_loss, _, logits, _ = self.get_loss(trans)
         self.policy_optimizer.zero_grad()
         if self.args.continuous:
-            self.policy_compute_grad(stat, (policy_loss, means, log_stds), False)
+            self.policy_compute_grad(
+                stat, (policy_loss, means, log_stds), False)
         else:
             self.policy_compute_grad(stat, (policy_loss, logits), False)
         param = self.policy_optimizer.param_groups[0]['params']
         policy_grad_norms = get_grad_norm(self.args, param)
         self.policy_optimizer.step()
-        stat['mean_train_policy_grad_norm'] = policy_grad_norms.item() # np.array(policy_grad_norms).mean()
+        # np.array(policy_grad_norms).mean()
+        stat['mean_train_policy_grad_norm'] = policy_grad_norms.item()
         stat['mean_train_policy_loss'] = policy_loss.clone().mean().item()
 
     def value_transition_process(self, stat, trans):
@@ -163,7 +186,7 @@ class PGTrainer(object):
         self.lambda_optimizer.zero_grad()
         lambda_loss.backward()
         self.lambda_optimizer.step()
-        if th.any(self.behaviour_net.multiplier<0):
+        if th.any(self.behaviour_net.multiplier < 0):
             self.behaviour_net.reset_multiplier()
         stat['mean_train_lambda'] = self.behaviour_net.multiplier.detach().mean().item()
 
@@ -174,13 +197,14 @@ class PGTrainer(object):
         param = self.auxiliary_optimizer.param_groups[0]['params']
         auxiliary_grad_norms = get_grad_norm(self.args, param)
         self.auxiliary_optimizer.step()
-        stat['mean_train_auxiliary_grad_norm'] = auxiliary_grad_norms.item() # np.array(policy_grad_norms).mean()
+        # np.array(policy_grad_norms).mean()
+        stat['mean_train_auxiliary_grad_norm'] = auxiliary_grad_norms.item()
         stat['mean_train_auxiliary_loss'] = auxiliary_loss.clone().mean().item()
 
     def run(self, stat, episode):
         # self.behaviour_net.train()
         self.behaviour_net.train_process(stat, self)
-        if (episode%self.args.eval_freq == self.args.eval_freq-1) or (episode == 0):
+        if (episode % self.args.eval_freq == self.args.eval_freq-1) or (episode == 0):
             # self.behaviour_net.eval()
             self.behaviour_net.evaluation(stat, self, 'June')
             self.behaviour_net.evaluation(stat, self, 'All')
@@ -194,6 +218,6 @@ class PGTrainer(object):
     def print_info(self, stat):
         string = [f'\nEpisode: {self.episodes}']
         for k, v in stat.items():
-            string.append( k + f': {v:2.4f}' )
+            string.append(k + f': {v:2.4f}')
         string = "\n".join(string)
-        print (string)
+        print(string)

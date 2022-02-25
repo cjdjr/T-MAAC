@@ -2,7 +2,6 @@ import torch as th
 import torch.nn as nn
 
 
-
 class MLPAgent(nn.Module):
     def __init__(self, input_shape, args):
         super(MLPAgent, self).__init__()
@@ -13,7 +12,7 @@ class MLPAgent(nn.Module):
 
         if args.layernorm:
             self.layernorm = nn.LayerNorm(args.hid_size)
-            
+
         self.fc2 = nn.Linear(args.hid_size, args.hid_size)
         self.mean = nn.Linear(args.hid_size, args.action_dim)
         self.log_std = nn.Linear(args.hid_size, args.action_dim)
@@ -22,7 +21,7 @@ class MLPAgent(nn.Module):
             self.hid_activation = nn.ReLU()
         elif self.args.hid_activation == 'tanh':
             self.hid_activation = nn.Tanh()
-        
+
     def init_hidden(self):
         # make hidden states on same device as model
         return self.fc1.weight.new(1, self.args.hid_size).zero_()
@@ -36,5 +35,7 @@ class MLPAgent(nn.Module):
         mean = self.mean(h)
         log_std = self.log_std(h)
         log_std = th.tanh(log_std)
-        log_std = self.args.LOG_STD_MIN + 0.5 * (self.args.LOG_STD_MAX - self.args.LOG_STD_MIN) * (log_std + 1) # From SpinUp / Denis Yarats
+        log_std = self.args.LOG_STD_MIN + 0.5 * \
+            (self.args.LOG_STD_MAX - self.args.LOG_STD_MIN) * \
+            (log_std + 1)  # From SpinUp / Denis Yarats
         return mean, log_std, h

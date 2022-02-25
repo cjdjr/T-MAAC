@@ -31,7 +31,7 @@ class MAAC(Model):
             Agent = RNNAgent
         else:
             NotImplementedError()
-            
+
         if self.args.shared_params:
             self.policy_dicts = nn.ModuleList([ Agent(input_shape, self.args) ])
         else:
@@ -53,12 +53,12 @@ class MAAC(Model):
 
         obs_chunks = [chk.squeeze(1) for chk in th.chunk(obs, self.n_, dim=1)]
         act_chunks = [chk.squeeze(1) for chk in th.chunk(act, self.n_, dim=1)]
-        
-        inps_chk = th.cat( (obs, act), dim=-1 ) 
+
+        inps_chk = th.cat( (obs, act), dim=-1 )
         sa_chunks = [chk.squeeze(1) for chk in th.chunk(inps_chk, self.n_, dim=1)]
         inps = (obs_chunks, act_chunks, sa_chunks)
         agents_rets = self.value_dicts[0](inps)
-        
+
         dec_agents_rets = []
         for val in zip(*agents_rets):
             dec_agents_rets.append(th.cat(val, dim=1))
@@ -119,4 +119,3 @@ class MAAC(Model):
         policy_loss = policy_loss.mean()
         value_loss = deltas.pow(2).mean()
         return policy_loss, value_loss, action_out
-            

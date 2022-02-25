@@ -3,7 +3,6 @@ import numpy as np
 from models.model import Model
 
 
-
 class RandomAgent(Model):
 
     def __init__(self, args):

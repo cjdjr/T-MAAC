@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-
 class RNNCritic(nn.Module):
     def __init__(self, input_shape, output_shape, args):
         super(RNNCritic, self).__init__()

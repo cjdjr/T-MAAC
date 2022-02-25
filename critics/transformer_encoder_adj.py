@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
+
 def multi_head_attention(q, k, v, mask=None):
     # q shape = (B, n_heads, n, key_dim)   : n can be either 1 or N
     # k,v shape = (B, n_heads, N, key_dim)
@@ -21,9 +22,11 @@ def multi_head_attention(q, k, v, mask=None):
     attn = th.matmul(F.softmax(score, dim=3), v).transpose(1, 2)
     return attn.reshape(*shp)
 
+
 def make_heads(qkv, n_heads):
     shp = (qkv.size(0), qkv.size(1), n_heads, -1)
     return qkv.reshape(*shp).transpose(1, 2)
+
 
 class EncoderLayer(nn.Module):
     def __init__(self, embedding_dim, n_heads=8):
@@ -67,7 +70,8 @@ class TransformerEncoder(nn.Module):
         self.obs_dim = obs_dim
         self.init_projection_layer = nn.Linear(obs_dim, self.hidden_dim)
         self.attn_layers = nn.ModuleList([
-            EncoderLayer(embedding_dim=self.hidden_dim, n_heads=self.attend_heads)
+            EncoderLayer(embedding_dim=self.hidden_dim,
+                         n_heads=self.attend_heads)
             for _ in range(self.n_layers)
         ])
         if args.layernorm:
@@ -84,7 +88,8 @@ class TransformerEncoder(nn.Module):
         # mask : (b*n, 1, self.obs_num + 1)
         x = self.init_projection_layer(obs)
         if hidden_state is not None:
-            x = th.cat((x, hidden_state.view(-1, self.hidden_dim).unsqueeze(dim=1)),dim=1)
+            x = th.cat(
+                (x, hidden_state.view(-1, self.hidden_dim).unsqueeze(dim=1)), dim=1)
 
         # gather agent index
         for layer in self.attn_layers[:-1]:
@@ -92,7 +97,7 @@ class TransformerEncoder(nn.Module):
         emb = x
         x = self.attn_layers[-1](x, final_mask)
         index = agent_index.unsqueeze(dim=-1).expand(-1, 1, self.hidden_dim)
-        output = x.gather(1, index).contiguous().squeeze(dim=1) # (b*n, h)
+        output = x.gather(1, index).contiguous().squeeze(dim=1)  # (b*n, h)
 
         # mean
         # for layer in self.attn_layers:
@@ -102,5 +107,5 @@ class TransformerEncoder(nn.Module):
         if hidden_state is None:
             h = None
         else:
-            h = x[:,-1:,:].contiguous().squeeze(dim=1) # (b*n, h)
+            h = x[:, -1:, :].contiguous().squeeze(dim=1)  # (b*n, h)
         return output, h, emb

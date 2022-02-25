@@ -50,7 +50,7 @@ class ICSTRANSMADDPG(Model):
             self.target_net = target_net
             self.reload_params_to_target()
         self.batchnorm = nn.BatchNorm1d(self.args.agent_num).to(self.device)
-        
+
     def construct_policy_net(self):
         # transformer encoder + mlp head
         if self.args.agent_type == 'transformer':
@@ -155,7 +155,7 @@ class ICSTRANSMADDPG(Model):
             else:
                 with th.no_grad():
                     emb_agent_glimpsed, _, emb = self.encode(obs)
-                    
+
             if self.args.use_emb == "glimpsed":
                 obs = emb_agent_glimpsed
             elif self.args.use_emb == "mean":
@@ -226,7 +226,7 @@ class ICSTRANSMADDPG(Model):
         assert values_pol.size() == next_values.size()
         assert returns.size() == values.size()
         done = done.to(self.device)
-        returns = rewards - (self.multiplier.detach() * cost).sum(dim=-1, keepdim=True)  + self.args.gamma * (1 - done) * next_values.detach() 
+        returns = rewards - (self.multiplier.detach() * cost).sum(dim=-1, keepdim=True)  + self.args.gamma * (1 - done) * next_values.detach()
         cost_returns = cost + self.args.cost_gamma * (1-done) * next_costs.detach()
         deltas, cost_deltas = returns - values, cost_returns - costs
         advantages = values_pol
@@ -249,7 +249,7 @@ class ICSTRANSMADDPG(Model):
     def get_auxiliary_loss(self, batch):
         batch_size = len(batch.state)
         state, actions, old_log_prob_a, old_values, old_next_values, rewards, cost, next_state, done, last_step, actions_avail, last_hids, hids = self.unpack_data(batch)
-        
+
         obs = state.view(batch_size, self.n_, self.obs_bus_num, self.obs_bus_dim).contiguous() # (b*n, self.obs_bus_num, self.obs_bus_dim)
         with th.no_grad():
             label = self._cal_out_of_control(obs.view(batch_size*self.n_, self.obs_bus_num, self.obs_bus_dim))
