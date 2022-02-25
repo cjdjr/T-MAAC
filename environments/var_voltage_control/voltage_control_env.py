@@ -50,7 +50,7 @@ class VoltageControl(MultiAgentEnv):
         # load the model of power network
         self.base_powergrid = self._load_network()
         # self._build_tree()
-        
+
         # load data
         self.pv_data = self._load_pv_data()
         self.active_demand_data = self._load_active_demand_data()
@@ -138,7 +138,7 @@ class VoltageControl(MultiAgentEnv):
                 self._episode_start_interval = self._select_start_interval()
 
             self.start_idx = self._episode_start_interval + self._episode_start_hour * (60 // self.time_delta) + self._episode_start_day * 24 * (60 // self.time_delta)
-            
+
             # get one episode of data
             self.pv_histories = self._get_episode_pv_history()
             self.active_demand_histories = self._get_episode_active_demand_history()
@@ -148,7 +148,7 @@ class VoltageControl(MultiAgentEnv):
             if self.args.reset_action:
                 self.powergrid.sgen["q_mvar"] = self.get_action()
                 self.powergrid.sgen["q_mvar"] = self._clip_reactive_power(self.powergrid.sgen["q_mvar"], self.powergrid.sgen["p_mw"])
-            try:    
+            try:
                 pp.runpp(self.powergrid)
                 solvable = True
             except ppException:
@@ -161,7 +161,7 @@ class VoltageControl(MultiAgentEnv):
                 solvable = False
 
         return self.get_obs(), self.get_state()
-    
+
     def manual_reset(self, day, hour, interval):
         """manual reset the initial date
         """
@@ -193,7 +193,7 @@ class VoltageControl(MultiAgentEnv):
             if self.args.reset_action:
                 self.powergrid.sgen["q_mvar"] = self.get_action()
                 self.powergrid.sgen["q_mvar"] = self._clip_reactive_power(self.powergrid.sgen["q_mvar"], self.powergrid.sgen["p_mw"])
-            try:    
+            try:
                 pp.runpp(self.powergrid)
                 solvable = True
             except ppException:
@@ -247,7 +247,7 @@ class VoltageControl(MultiAgentEnv):
 
     def set_episode_limit(self, max_steps):
         self.episode_limit = max_steps
-        
+
     def get_state(self):
         """return the global state for the power system
            the default state: voltage, active power of generators, bus state, load active power, load reactive power
@@ -273,7 +273,7 @@ class VoltageControl(MultiAgentEnv):
             state += list(self.powergrid.res_bus["va_degree"].sort_index().to_numpy(copy=True))
         state = np.array(state)
         return state
-    
+
     def get_obs(self):
         """return the obs for each agent in the power system
            the default obs: voltage, active power of generators, bus state, load active power, load reactive power
@@ -297,7 +297,7 @@ class VoltageControl(MultiAgentEnv):
                 self.obs_bus_num.append(len(zone_buses))
                 zone_list.append(zone)
                 agent_index_in_obs.append(list(zone_buses.index).index(sgen_bus))
-                
+
                 if "date" in self.state_space:
                     idx = self.start_idx + self.steps - 1
                     obs.append(self.pv_data.index[idx].month)
@@ -390,16 +390,16 @@ class VoltageControl(MultiAgentEnv):
         return agents_obs
 
     def get_obs_agent(self, agent_id):
-        """return observation for agent_id 
+        """return observation for agent_id
         """
         agents_obs = self.get_obs()
         return agents_obs[agent_id]
-    
+
     def get_obs_size(self):
         """return the observation size
         """
         return self.obs_size
-    
+
     def get_obs_bus_num(self):
         return self.obs_bus_num
 
@@ -422,7 +422,7 @@ class VoltageControl(MultiAgentEnv):
         return rand_action
 
     def get_total_actions(self):
-        """return the total number of actions an agent could ever take 
+        """return the total number of actions an agent could ever take
         """
         return self.n_actions
 
@@ -435,7 +435,7 @@ class VoltageControl(MultiAgentEnv):
         return np.expand_dims(np.array(avail_actions), axis=0)
 
     def get_avail_agent_actions(self, agent_id):
-        """ return the available actions for agent_id 
+        """ return the available actions for agent_id
         """
         if self.args.mode == "distributed":
             return [1]
@@ -474,7 +474,7 @@ class VoltageControl(MultiAgentEnv):
         """select start hour for an episode
         """
         return np.random.choice(24)
-    
+
     def _select_start_interval(self):
         """select start interval for an episode
         """
@@ -503,7 +503,7 @@ class VoltageControl(MultiAgentEnv):
         self.time_delta = (pv_data.index[1] - pv_data.index[0]).seconds // 60
         year = np.random.randint(2012,2015)
         month = np.random.randint(10,14) % 12 + 1
-        max_day = {11: 30, 
+        max_day = {11: 30,
                    12: 30 if year==2014 else 31,
                    1: 31,
                    2: 29 if year==2012 else 28}
@@ -539,7 +539,7 @@ class VoltageControl(MultiAgentEnv):
         demand.index.name = 'time'
         demand = demand.iloc[::1, 1:] * self.args.demand_scale
         return demand
-    
+
     def _load_reactive_demand_data(self):
         """load reactive demand data
         the sensor frequency is set to 3 min as default
@@ -560,7 +560,7 @@ class VoltageControl(MultiAgentEnv):
         nr_intervals = episode_length + history + 1  # margin of 1
         episode_pv_history = self.pv_data[start:start + nr_intervals].values
         return episode_pv_history
-    
+
     def _get_episode_active_demand_history(self):
         """return the active power histories for all loads in an episode
         """
@@ -570,7 +570,7 @@ class VoltageControl(MultiAgentEnv):
         nr_intervals = episode_length + history + 1  # margin of 1
         episode_demand_history = self.active_demand_data[start:start + nr_intervals].values
         return episode_demand_history
-    
+
     def _get_episode_reactive_demand_history(self):
         """return the reactive power histories for all loads in an episode
         """
@@ -594,7 +594,7 @@ class VoltageControl(MultiAgentEnv):
         t = self.steps
         history = self.history
         return self.active_demand_histories[t:t+history, :]
-    
+
     def _get_reactive_demand_history(self):
         """return the history demand
         """
@@ -604,7 +604,7 @@ class VoltageControl(MultiAgentEnv):
 
     def _set_demand_and_pv(self, add_noise=True):
         """optionally update the demand and pv production according to the histories with some i.i.d. gaussian noise
-        """ 
+        """
         pv = copy.copy(self._get_pv_history()[0, :])
 
         # add uncertainty to pv data with unit truncated gaussian (only positive accepted)
@@ -660,7 +660,7 @@ class VoltageControl(MultiAgentEnv):
         elif self.args.mode == "centralised":
             pass
         return clusters
-    
+
     def _take_action(self, actions):
         """take the control variables
         the control variables we consider are the exact reactive power
@@ -681,7 +681,7 @@ class VoltageControl(MultiAgentEnv):
             print (f"This is the reactive demand: \n{self.powergrid.load['q_mvar']}")
             print (f"This is the res_bus: \n{self.powergrid.res_bus}")
             return False
-    
+
     def _clip_reactive_power(self, reactive_actions, active_power):
         """clip the reactive power to the hard safety range
         """
@@ -691,7 +691,7 @@ class VoltageControl(MultiAgentEnv):
     def get_q_divide_a_coff(self):
         active_power = self.powergrid.sgen["p_mw"]
         return np.sqrt(self.s_max**2 - active_power**2)
-    
+
     def _calc_reward(self, info={}):
         """reward function
         consider 5 possible choices on voltage barrier functions:
@@ -726,9 +726,9 @@ class VoltageControl(MultiAgentEnv):
                 #     info["percentage_of_lower_than_lower_v"] = np.sum(v < self.v_lower) / v.shape[0]
                 #     info["percentage_of_higher_than_upper_v"] = np.sum(v > self.v_upper) / v.shape[0]
                 #     info["totally_controllable_ratio"] = 0. if percent_of_v_out_of_control > 1e-3 else 1.
-                    
+
         info["percentage_of_v_out_of_control_region"] = np.array(out_of_control)
-        
+
         out_of_control = []
         for i in range(self.n_agents):
             zone = self.base_powergrid.sgen['name'][i]
@@ -779,7 +779,7 @@ class VoltageControl(MultiAgentEnv):
     def _get_res_bus_v(self):
         v = self.powergrid.res_bus["vm_pu"].sort_index().to_numpy(copy=True)
         return v
-    
+
     def _get_res_bus_active(self):
         active = self.powergrid.res_bus["p_mw"].sort_index().to_numpy(copy=True)
         return active
@@ -795,11 +795,11 @@ class VoltageControl(MultiAgentEnv):
     def _get_sgen_active(self):
         active = self.powergrid.sgen["p_mw"].to_numpy(copy=True)
         return active
-    
+
     def _get_sgen_reactive(self):
         reactive = self.powergrid.sgen["q_mvar"].to_numpy(copy=True)
         return reactive
-    
+
     def _build_tree(self):
         bus_num = len(self.base_powergrid.bus)
         g = [[] for _ in range(bus_num)]
@@ -818,7 +818,7 @@ class VoltageControl(MultiAgentEnv):
                     u,v = v,u
                 u = self.base_powergrid.line['from_bus'][father[u]]
             return u
-                
+
         for i in range(len(self.base_powergrid.line)):
             u = self.base_powergrid.line['from_bus'][i]
             v = self.base_powergrid.line['to_bus'][i]
@@ -853,12 +853,12 @@ class VoltageControl(MultiAgentEnv):
         if not os.path.exists("environments/var_voltage_control/plot_save"):
             os.mkdir("environments/var_voltage_control/plot_save")
 
-        fig = pf_res_plotly(self.powergrid, 
-                            aspectratio=(1.0, 1.0), 
-                            filename="environments/var_voltage_control/plot_save/pf_res_plot.html", 
+        fig = pf_res_plotly(self.powergrid,
+                            aspectratio=(1.0, 1.0),
+                            filename="environments/var_voltage_control/plot_save/pf_res_plot.html",
                             auto_open=False,
                             climits_volt=(0.9, 1.1),
-                            line_width=5, 
+                            line_width=5,
                             bus_size=12,
                             climits_load=(0, 100),
                             cpos_load=1.1,
@@ -910,7 +910,243 @@ class VoltageControl(MultiAgentEnv):
         return np.array([region.index(zone_name)-1 for zone_name in self.base_powergrid.sgen['name']])
 
     def get_agent_index_in_obs(self):
-        return self.agent_index_in_obs 
+        return self.agent_index_in_obs
 
     def get_region_adj(self):
         return self.adj
+
+
+class VoltageControl_discrete(VoltageControl):
+    def __init__(self, kwargs):
+        """initialisation
+        """
+        # unpack args
+        args = kwargs
+        if isinstance(args, dict):
+            args = convert(args)
+        self.args = args
+
+        # set the data path
+        self.data_path = args.data_path
+
+        # load the model of power network
+        self.base_powergrid = self._load_network()
+        # self._build_tree()
+
+        # load data
+        self.pv_data = self._load_pv_data()
+        self.active_demand_data = self._load_active_demand_data()
+        self.reactive_demand_data = self._load_reactive_demand_data()
+
+        # define episode and rewards
+        self.episode_limit = args.episode_limit
+        self.voltage_loss_type = getattr(args, "voltage_loss", "l1")
+        self.voltage_weight = getattr(args, "voltage_weight", 1.0)
+        self.q_weight = getattr(args, "q_weight", 0.1)
+        self.line_weight = getattr(args, "line_weight", None)
+        self.total_voltage_weight = getattr(args, "total_voltage_weight", None)
+        self.dv_dq_weight = getattr(args, "dq_dv_weight", None)
+        self.independ_reward = getattr(args, "independ_reward", False)
+
+        # define constraints and uncertainty
+        self.v_upper = getattr(args, "v_upper", 1.05)
+        self.v_lower = getattr(args, "v_lower", 0.95)
+        self.active_demand_std = self.active_demand_data.values.std(axis=0) / 100.0
+        self.reactive_demand_std = self.reactive_demand_data.values.std(axis=0) / 100.0
+        self.pv_std = self.pv_data.values.std(axis=0) / 100.0
+        self._set_reactive_power_boundary()
+        self.pv_index = self.base_powergrid.sgen['bus'].sort_index().to_numpy(copy=True)
+        if self.args.season == 'all':
+            self.start_day_func = self._select_start_day
+        elif self.args.season == 'summer':
+            self.start_day_func = self._select_summer_start_day
+        elif self.args.season == 'winter':
+            self.start_day_func = self._select_winter_start_day
+        else:
+            raise NotImplementedError("Please select correct season!")
+
+        # define action space and observation space
+        self.action_space = ActionSpace(low=-self.args.action_scale+self.args.action_bias, high=self.args.action_scale+self.args.action_bias)
+        self.action_interval = self.args.action_interval
+
+        self.history = getattr(args, "history", 1)
+        self.state_space = getattr(args, "state_space", ["pv", "demand", "reactive", "vm_pu", "va_degree"])
+        if self.args.mode == "distributed":
+            self.n_actions = self.action_interval
+            self.n_agents = len(self.base_powergrid.sgen)
+        elif self.args.mode == "decentralised":
+            NotImplementedError()
+        elif self.args.mode == 'centralised':
+            NotImplementedError()
+
+        self.region = np.unique(self.base_powergrid.bus['zone'].to_numpy(copy=True))
+        self.region = np.append(self.region, 'all')
+        self._cal_mask()
+        agents_obs, state = self.reset()
+        self._cal_adj_matrix()
+
+        self.obs_size = agents_obs[0].shape[0]
+        self.state_size = state.shape[0]
+        self.last_v = self.powergrid.res_bus["vm_pu"].sort_index().to_numpy(copy=True)
+        self.last_q = self.powergrid.sgen["q_mvar"].to_numpy(copy=True)
+
+        # initialise voltage barrier function
+        self.voltage_barrier = VoltageBarrier(self.voltage_loss_type)
+        self._rendering_initialized = False
+
+
+    def reset(self, reset_time=True):
+        """reset the env
+        """
+        # reset the time step, cumulative rewards and obs history
+        self.steps = 1
+        if self.independ_reward:
+            self.sum_rewards = np.zeros(self.n_agents)
+        else:
+            self.sum_rewards = 0
+        if self.history > 1:
+            self.obs_history = {i: [] for i in range(self.n_agents)}
+
+        # reset the power grid
+        self.powergrid = copy.deepcopy(self.base_powergrid)
+        solvable = False
+        while not solvable:
+            # reset the time stamp
+            if reset_time:
+                self._episode_start_hour = self._select_start_hour()
+                self._episode_start_day = self.start_day_func()
+                self._episode_start_interval = self._select_start_interval()
+
+            self.start_idx = self._episode_start_interval + self._episode_start_hour * (60 // self.time_delta) + self._episode_start_day * 24 * (60 // self.time_delta)
+
+            # get one episode of data
+            self.pv_histories = self._get_episode_pv_history()
+            self.active_demand_histories = self._get_episode_active_demand_history()
+            self.reactive_demand_histories = self._get_episode_reactive_demand_history()
+            self._set_demand_and_pv()
+            # random initialise action
+            if self.args.reset_action:
+                random_action = self.get_action()
+                self.powergrid.sgen["q_mvar"] = self._clip_reactive_power(random_action, self.powergrid.sgen["p_mw"])
+            try:
+                pp.runpp(self.powergrid)
+                solvable = True
+            except ppException:
+                print ("The power flow for the initialisation of demand and PV cannot be solved.")
+                print (f"This is the pv: \n{self.powergrid.sgen['p_mw']}")
+                print (f"This is the q: \n{self.powergrid.sgen['q_mvar']}")
+                print (f"This is the active demand: \n{self.powergrid.load['p_mw']}")
+                print (f"This is the reactive demand: \n{self.powergrid.load['q_mvar']}")
+                print (f"This is the res_bus: \n{self.powergrid.res_bus}")
+                solvable = False
+
+        return self.get_obs(), self.get_state()
+
+    def manual_reset(self, day, hour, interval):
+        """manual reset the initial date
+        """
+        # reset the time step, cumulative rewards and obs history
+        self.steps = 1
+        if self.independ_reward:
+            self.sum_rewards = np.zeros(self.n_agents)
+        else:
+            self.sum_rewards = 0
+        if self.history > 1:
+            self.obs_history = {i: [] for i in range(self.n_agents)}
+
+        # reset the power grid
+        self.powergrid = copy.deepcopy(self.base_powergrid)
+
+        # reset the time stamp
+        self._episode_start_hour = hour
+        self._episode_start_day = day
+        self._episode_start_interval = interval
+        self.start_idx = self._episode_start_interval + self._episode_start_hour * (60 // self.time_delta) + self._episode_start_day * 24 * (60 // self.time_delta)
+        solvable = False
+        while not solvable:
+            # get one episode of data
+            self.pv_histories = self._get_episode_pv_history()
+            self.active_demand_histories = self._get_episode_active_demand_history()
+            self.reactive_demand_histories = self._get_episode_reactive_demand_history()
+            self._set_demand_and_pv(add_noise=False)
+            # random initialise action
+            if self.args.reset_action:
+                random_action = self.get_action()
+                self.powergrid.sgen["q_mvar"] = self._clip_reactive_power(random_action, self.powergrid.sgen["p_mw"])
+            try:
+                pp.runpp(self.powergrid)
+                solvable = True
+            except ppException:
+                print ("The power flow for the initialisation of demand and PV cannot be solved.")
+                print (f"This is the pv: \n{self.powergrid.sgen['p_mw']}")
+                print (f"This is the q: \n{self.powergrid.sgen['q_mvar']}")
+                print (f"This is the active demand: \n{self.powergrid.load['p_mw']}")
+                print (f"This is the reactive demand: \n{self.powergrid.load['q_mvar']}")
+                print (f"This is the res_bus: \n{self.powergrid.res_bus}")
+                solvable = False
+
+        return self.get_obs(), self.get_state()
+
+    def step(self, actions, add_noise=True):
+        """function for the interaction between agent and the env each time step
+        """
+        last_powergrid = copy.deepcopy(self.powergrid)
+
+        # check whether the power balance is unsolvable
+        solvable = self._take_action(actions)
+        if solvable:
+            # get the reward of current actions
+            reward, info = self._calc_reward()
+        else:
+            q_loss = np.mean( np.abs(self.powergrid.sgen["q_mvar"]) )
+            self.powergrid = last_powergrid
+            reward, info = self._calc_reward()
+            reward -= 200.
+            # keep q_loss
+            info["destroy"] = 1.
+            info["totally_controllable_ratio"] = 0.
+            info["percentage_of_v_out_of_control"] = 1.
+            info["percentage_of_v_out_of_control_region"] = np.ones(len(self.region))
+            info["percentage_of_v_out_of_control_agent"] = np.ones(self.n_agents)
+            info["q_loss"] = q_loss
+
+        # set the pv and demand for the next time step
+        self._set_demand_and_pv(add_noise=add_noise)
+
+        # terminate if episode_limit is reached
+        self.steps += 1
+        self.sum_rewards += reward
+        if self.steps >= self.episode_limit or not solvable:
+            terminated = True
+        else:
+            terminated = False
+        if terminated:
+            print (f"Episode terminated at time: {self.steps} with return: {np.mean(self.sum_rewards):2.4f}.")
+
+        return reward, terminated, info
+
+    def get_action(self):
+        """return the action according to a uniform distribution over [action_lower, action_upper)
+        """
+        # rand_action = np.random.uniform(low=self.action_space.low, high=self.action_space.high, size=self.powergrid.sgen["q_mvar"].values.shape)
+        rand_action = np.random.randint(low=0, high=self.action_interval, size=self.powergrid.sgen["q_mvar"].values.shape)
+        # rand_action = np.zeros(self.powergrid.sgen["q_mvar"].values.shape)
+        return rand_action
+
+    def _clip_reactive_power(self, reactive_actions, active_power):
+        """clip the reactive power to the hard safety range
+        reactive_actions: [0, self.interval)
+        """
+        reactive_power_constraint = np.sqrt(self.s_max**2 - active_power**2)
+        reactive_actions = self.action_space.low + (self.action_space.high - self.action_space.low)/(self.action_interval-1) * reactive_actions
+        return reactive_power_constraint * reactive_actions
+
+    def get_avail_agent_actions(self, agent_id):
+        """ return the available actions for agent_id
+        """
+        if self.args.mode == "distributed":
+            return [1 for _ in range(self.n_actions)]
+        elif self.args.mode == "decentralised":
+            NotImplementedError()
+        elif self.args.mode == "centralised":
+            NotImplementedError()

@@ -1,0 +1,26 @@
+env: "voltage_control"
+
+env_args:
+    "voltage_loss_type": "l1" # "l1", "l2", "bowl", "courant_beltrami", "bump"
+    "voltage_weight": 1.0
+    "total_voltage_weight": 0.0
+    "q_weight": 0.1 # (0.1, 0.01, 0.1)
+    "line_weight": null # (0.1, 1, 0.1)
+    "dq_dv_weight": null
+    "independ_reward": False
+    "history": 1
+    "pv_scale": 1.0
+    "demand_scale": 1.0
+    "state_space": ["pv", "demand", "reactive", "vm_pu", "va_degree"]
+    "v_upper": 1.05
+    "v_lower": 0.95
+    "data_path": "./environments/var_voltage_control/data/case33_3min_final"
+    "episode_limit": 240 # in time intervals
+    "action_scale": null
+    "action_bias": null
+    "action_interval": 40
+    "mode": null # distributed / decentralised / centralised
+    "reset_action": True
+    "season": "all" # all / summer / winter
+    "control": "all" # all / zone2
+    "dis_threshold": 1

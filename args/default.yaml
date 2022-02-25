@@ -4,8 +4,8 @@
 # if set batch_size / update_freq <= replay_buffer_size and episodic=True -> off-policy episodic update
 # if set batch_size / update_freq <= replay_buffer_size and episodic=False -> off-policy transition update
 "gumbel_softmax": False
-"epsilon_softmax": False
-"softmax_eps": null
+"epsilon_softmax": True
+"softmax_eps": 0.1
 "episodic": False
 "cuda": True
 "grad_clip_eps": 1.0 # activated when grad_clip=True
