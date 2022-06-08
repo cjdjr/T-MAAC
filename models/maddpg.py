@@ -4,8 +4,6 @@ import numpy as np
 from utilities.util import select_action
 from models.model import Model
 from critics.mlp_critic import MLPCritic
-from critics.attention_critic import AttentionCritic
-from critics.transformer_critic import TransformerCritic
 
 
 class MADDPG(Model):
@@ -40,11 +38,6 @@ class MADDPG(Model):
             self.value_dicts = nn.ModuleList( [ MLPCritic(input_shape, output_shape, self.args, self.args.use_date) ] )
         else:
             self.value_dicts = nn.ModuleList( [ MLPCritic(input_shape, output_shape, self.args, self.args.use_date) for _ in range(self.n_) ] )
-        # if self.args.agent_id:
-        #     input_shape = (self.args.hid_size + self.act_dim) * self.n_ + self.n_
-        # else:
-        #     input_shape = (self.args.hid_size + self.act_dim) * self.n_
-        # self.value_dicts = nn.ModuleList( [ TransformerCritic(self.obs_dim, self.act_dim, input_shape, output_shape, self.args) ] )
 
     def construct_model(self):
         self.construct_value_net()

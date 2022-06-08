@@ -6,8 +6,8 @@ import numpy as np
 from utilities.util import select_action
 from models.model import Model
 from critics.mlp_critic import MLPCritic
-from critics.transformer_critic_ex import TransformerCritic
-from critics.transformer_encoder_adj import TransformerEncoder
+from transformer.transformer_critic_ex import TransformerCritic
+from transformer.transformer_encoder_adj import TransformerEncoder
 
 class ICSTRANSMADDPG(Model):
     def __init__(self, args, target_net=None):
@@ -54,7 +54,7 @@ class ICSTRANSMADDPG(Model):
     def construct_policy_net(self):
         # transformer encoder + mlp head
         if self.args.agent_type == 'transformer':
-            from agents.transformer_agent import TransformerAgent
+            from transformer.transformer_policy_head import TransformerAgent
             Agent = TransformerAgent
         else:
             NotImplementedError()
@@ -85,7 +85,7 @@ class ICSTRANSMADDPG(Model):
         if self.args.auxiliary:
             input_shape = self.args.hid_size
             output_shape = 1
-            from critics.transformer_critic import TransformerCritic as MLPHead
+            from transformer.transformer_aux_head import TransformerCritic as MLPHead
             self.auxiliary_dicts = nn.ModuleList( [ MLPHead(input_shape, output_shape, self.args, self.args.use_date) ] )
 
     def construct_model(self):
@@ -235,8 +235,8 @@ class ICSTRANSMADDPG(Model):
         policy_loss = - advantages
         policy_loss = policy_loss.mean()
         value_loss = deltas.pow(2).mean()
-        if self.args.auxiliary_loss:
-            value_loss += cost_deltas.pow(2).mean()
+        # if self.args.cost_loss:
+        #     value_loss += cost_deltas.pow(2).mean()
         lambda_loss = - ((cost_returns.detach() - self.upper_bound) * self.multiplier).mean(dim=0).sum()
         return policy_loss, value_loss, action_out, lambda_loss
 

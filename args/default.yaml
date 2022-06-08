@@ -52,11 +52,11 @@
 "reward_normalisation": True
 "eval_freq": 20 # evaluation per xxx episodes
 "num_eval_episodes": 10 # number of episodes for an evaluation
-"safe_filter": null
-"safe_trans": False
+# "safe_filter": null
+# "safe_trans": False
 "multiplier": False
-"predict_loss": False
+# "predict_loss": False
 "encoder": False
-"split_constraint": False
+# "split_constraint": False
 "auxiliary": False
-"test_season": "June" # "all" "June"
+# "test_season": "all" # "all" "June"

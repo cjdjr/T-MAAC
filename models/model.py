@@ -262,27 +262,27 @@ class Model(nn.Module):
             _, actual = translate_action(self.args, action, trainer.env)
 
             # safe filter
-            if self.args.safe_filter != 'none':
-                global_state_ = th.tensor(global_state).to(
-                    th.float32).to(self.device).contiguous().view(1, -1)
-                actual_ = th.tensor(actual).to(th.float32).to(
-                    self.device).contiguous().view(1, -1)
-                k = np.array(trainer.env.get_q_divide_a_coff())
-                lb = trainer.env.action_space.low
-                ub = trainer.env.action_space.high
-                if self.args.safe_filter == 'hard':
-                    actual, flag = self.correct_actions_hard(
-                        global_state_, actual_, k, lb, ub)
-                elif self.args.safe_filter == 'soft':
-                    actual, flag = self.correct_actions_soft(
-                        global_state_, actual_, k, lb, ub, trainer.env.pv_index)
-                safe_action_pol = rev_translate_action(
-                    self.args, actual, trainer.env)
-                # actual = actual.detach().squeeze().cpu().numpy()
-                if flag == INFEASIBLE:
-                    stat_train['mean_train_solver_infeasible'] += 1
-                if flag == INTERVENTIONS:
-                    stat_train['mean_train_solver_interventions'] += 1
+            # if self.args.safe_filter != 'none':
+            #     global_state_ = th.tensor(global_state).to(
+            #         th.float32).to(self.device).contiguous().view(1, -1)
+            #     actual_ = th.tensor(actual).to(th.float32).to(
+            #         self.device).contiguous().view(1, -1)
+            #     k = np.array(trainer.env.get_q_divide_a_coff())
+            #     lb = trainer.env.action_space.low
+            #     ub = trainer.env.action_space.high
+            #     if self.args.safe_filter == 'hard':
+            #         actual, flag = self.correct_actions_hard(
+            #             global_state_, actual_, k, lb, ub)
+            #     elif self.args.safe_filter == 'soft':
+            #         actual, flag = self.correct_actions_soft(
+            #             global_state_, actual_, k, lb, ub, trainer.env.pv_index)
+            #     safe_action_pol = rev_translate_action(
+            #         self.args, actual, trainer.env)
+            #     # actual = actual.detach().squeeze().cpu().numpy()
+            #     if flag == INFEASIBLE:
+            #         stat_train['mean_train_solver_infeasible'] += 1
+            #     if flag == INTERVENTIONS:
+            #         stat_train['mean_train_solver_interventions'] += 1
 
             # reward
             reward, done, info = trainer.env.step(actual)
@@ -290,17 +290,18 @@ class Model(nn.Module):
                 reward_repeat = reward
             else:
                 reward_repeat = [reward]*trainer.env.get_num_of_agents()
-            if self.args.split_constraint:
-                if self.args.cost_type == "region":
-                    out_of_control = [
-                        info['percentage_of_v_out_of_control_region'] for _ in range(self.n_)]
-                elif self.args.cost_type == 'agent':
-                    out_of_control = info['percentage_of_v_out_of_control_agent']
-                else:
-                    NotImplementedError()
-            else:
-                out_of_control = [
-                    info['percentage_of_v_out_of_control']] * trainer.env.get_num_of_agents()
+            # if self.args.split_constraint:
+            #     if self.args.cost_type == "region":
+            #         out_of_control = [
+            #             info['percentage_of_v_out_of_control_region'] for _ in range(self.n_)]
+            #     elif self.args.cost_type == 'agent':
+            #         out_of_control = info['percentage_of_v_out_of_control_agent']
+            #     else:
+            #         NotImplementedError()
+            # else:
+            #     out_of_control = [
+            #         info['percentage_of_v_out_of_control']] * trainer.env.get_num_of_agents()
+            out_of_control = [info['percentage_of_v_out_of_control']] * trainer.env.get_num_of_agents()
             # next state, action, value
             next_state = trainer.env.get_obs()
             next_state_ = prep_obs(next_state).to(
@@ -315,26 +316,27 @@ class Model(nn.Module):
             if isinstance(done, list):
                 done = np.sum(done)
             done_ = done or t == self.args.max_steps-1
-            if not self.args.safe_trans or info["totally_controllable_ratio"] == 1.:
-                trans = self.Transition(state,
-                                        action_pol.detach().cpu().numpy() if self.args.safe_filter == 'none' else safe_action_pol,
-                                        log_prob_a,
-                                        value.detach().cpu().numpy(),
-                                        next_value.detach().cpu().numpy(),
-                                        np.array(reward_repeat),
-                                        np.array(out_of_control),
-                                        next_state,
-                                        done,
-                                        done_,
-                                        trainer.env.get_avail_actions(),
-                                        last_hid.detach().cpu().numpy(),
-                                        hid.detach().cpu().numpy()
-                                        )
-                if not self.args.episodic:
-                    self.transition_update(
-                        trainer, trans, stat, info["destroy"])
-                else:
-                    episode.append(trans)
+            # if not self.args.safe_trans or info["totally_controllable_ratio"] == 1.:
+            trans = self.Transition(state,
+                                    # action_pol.detach().cpu().numpy() if self.args.safe_filter == 'none' else safe_action_pol,
+                                    action_pol.detach().cpu().numpy(),
+                                    log_prob_a,
+                                    value.detach().cpu().numpy(),
+                                    next_value.detach().cpu().numpy(),
+                                    np.array(reward_repeat),
+                                    np.array(out_of_control),
+                                    next_state,
+                                    done,
+                                    done_,
+                                    trainer.env.get_avail_actions(),
+                                    last_hid.detach().cpu().numpy(),
+                                    hid.detach().cpu().numpy()
+                                    )
+            if not self.args.episodic:
+                self.transition_update(
+                    trainer, trans, stat, info["destroy"])
+            else:
+                episode.append(trans)
             for k, v in info.items():
                 if type(v) is not np.ndarray:
                     if 'mean_train_'+k not in stat_train.keys():
@@ -342,8 +344,8 @@ class Model(nn.Module):
                     else:
                         stat_train['mean_train_' + k] += v
             stat_train['mean_train_reward'] += np.mean(reward)
-            if not self.args.safe_trans or info["totally_controllable_ratio"] == 1.:
-                trainer.steps += 1
+            # if not self.args.safe_trans or info["totally_controllable_ratio"] == 1.:
+            trainer.steps += 1
             if done_:
                 break
             # set the next state

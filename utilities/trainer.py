@@ -1,4 +1,3 @@
-from typing_extensions import ParamSpecArgs
 import numpy as np
 import torch as th
 from torch import optim
@@ -159,10 +158,10 @@ class PGTrainer(object):
 
     def value_transition_process(self, stat, trans):
         _, value_loss, _, _ = self.get_loss(trans)
-        if self.args.predict_loss:
-            value_loss, pred_loss = value_loss
-            stat['mean_train_pred_loss'] = pred_loss.clone().mean().item()
-            value_loss = value_loss + pred_loss
+        # if self.args.predict_loss:
+        #     value_loss, pred_loss = value_loss
+        #     stat['mean_train_pred_loss'] = pred_loss.clone().mean().item()
+        #     value_loss = value_loss + pred_loss
         self.value_optimizer.zero_grad()
         self.value_compute_grad(value_loss, False)
         param = self.value_optimizer.param_groups[0]['params']
@@ -206,7 +205,7 @@ class PGTrainer(object):
         self.behaviour_net.train_process(stat, self)
         if (episode % self.args.eval_freq == self.args.eval_freq-1) or (episode == 0):
             # self.behaviour_net.eval()
-            self.behaviour_net.evaluation(stat, self, 'June')
+            # self.behaviour_net.evaluation(stat, self, 'June')
             self.behaviour_net.evaluation(stat, self, 'All')
 
     def logging(self, stat, use_wandb=False):

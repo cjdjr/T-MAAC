@@ -3,9 +3,9 @@ env: "voltage_control"
 env_args:
     "voltage_loss_type": "l1" # "l1", "l2", "bowl", "courant_beltrami", "bump"
     "voltage_weight": 1.0
-    "total_voltage_weight": 0.0
-    "q_weight": 0.1 # (0.1, 0.01, 0.1)
-    "line_weight": null # (0.1, 1, 0.1)
+    "total_voltage_weight": null
+    "q_weight": 0.1 # 0.1 for case322 and 0.01 for case141
+    "line_weight": null
     "dq_dv_weight": null
     "independ_reward": False
     "history": 1

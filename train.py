@@ -5,7 +5,7 @@ import yaml
 from tensorboardX import SummaryWriter
 
 from models.model_registry import Model, Strategy
-from environments.var_voltage_control.voltage_control_env import VoltageControl, VoltageControl_discrete
+from environments.var_voltage_control.voltage_control_env import VoltageControl
 from utilities.util import convert, dict2str
 from utilities.trainer import PGTrainer
 import wandb
@@ -15,26 +15,28 @@ parser = argparse.ArgumentParser(description="Train rl agent.")
 parser.add_argument("--save-path", type=str, nargs="?", default="./",
                     help="Please enter the directory of saving model.")
 parser.add_argument("--alg", type=str, nargs="?",
-                    default="coma", help="Please enter the alg name.")
+                    default="maddpg", help="Please enter the alg name.")
 parser.add_argument("--env", type=str, nargs="?",
-                    default="var_voltage_control_dis", help="Please enter the env name.")
+                    default="var_voltage_control", help="Please enter the env name.")
 parser.add_argument("--alias", type=str, nargs="?", default="",
                     help="Please enter the alias for exp control.")
 parser.add_argument("--mode", type=str, nargs="?", default="distributed",
                     help="Please enter the mode: distributed or decentralised.")
 parser.add_argument("--scenario", type=str, nargs="?", default="case33_3min_final",
                     help="Please input the valid name of an environment scenario.")
+parser.add_argument("--qweight", type=float, nargs="?", default=0.1,
+                    help="Please input the q weight of env: 0.01 for case141 and 0.1 for case322")
 parser.add_argument("--voltage-barrier-type", type=str, nargs="?", default="l1",
                     help="Please input the valid voltage barrier type: l1, courant_beltrami, l2, bowl or bump.")
 parser.add_argument("--season", type=str, nargs="?",
                     default="all", help="all/summer/winter")
-parser.add_argument("--date-emb",  action='store_true')
-parser.add_argument("--safe-trans",  action='store_true')
+# parser.add_argument("--date-emb",  action='store_true')
+# parser.add_argument("--safe-trans",  action='store_true')
 parser.add_argument("--wandb",  action='store_true')
-parser.add_argument("--safe", type=str, nargs="?",
-                    default="none", help="none/hard/soft")
-parser.add_argument("--constraint_model_path", type=str,
-                    nargs="?", default="transition/case322_3min_final.lin_model")
+# parser.add_argument("--safe", type=str, nargs="?",
+#                     default="none", help="none/hard/soft")
+# parser.add_argument("--constraint_model_path", type=str,
+#                     nargs="?", default="transition/case322_3min_final.lin_model")
 argv = parser.parse_args()
 
 # load env args
@@ -67,8 +69,10 @@ assert argv.season in [
     'all', 'summer', 'winter'], "Please input the correct season, e.g. all or summer or winter."
 env_config_dict["season"] = argv.season
 
-if argv.date_emb:
-    env_config_dict["state_space"].append("date")
+env_config_dict["q_weight"] = argv.qweight
+
+# if argv.date_emb:
+#     env_config_dict["state_space"].append("date")
 
 # load default args
 with open("./args/default.yaml", "r") as f:
@@ -78,9 +82,6 @@ with open("./args/default.yaml", "r") as f:
 if argv.env == "var_voltage_control":
     env = VoltageControl(env_config_dict)
     default_config_dict["continuous"] = True
-else:
-    env = VoltageControl_discrete(env_config_dict)
-    default_config_dict["continuous"] = False
 
 # load alg args
 with open("./args/alg_args/" + argv.alg + ".yaml", "r") as f:
@@ -105,22 +106,23 @@ alg_config_dict['agent2region'] = env.get_agent2region()
 alg_config_dict['agent_index_in_obs'] = env.get_agent_index_in_obs()
 alg_config_dict['region_adj'] = env.get_region_adj()
 
-if argv.date_emb:
-    alg_config_dict['agent_type'] = "rnn_with_date"
-    alg_config_dict['use_date'] = True
+# if argv.date_emb:
+#     alg_config_dict['agent_type'] = "rnn_with_date"
+#     alg_config_dict['use_date'] = True
 
-if argv.safe_trans:
-    alg_config_dict['safe_trans'] = True
+# if argv.safe_trans:
+#     alg_config_dict['safe_trans'] = True
 
 constraint_model = None
-alg_config_dict['safe_filter'] = argv.safe
-if argv.safe != 'none':
-    alg_config_dict['constraint_model_path'] = argv.constraint_model_path
-    device = th.device("cuda" if th.cuda.is_available()
-                       and alg_config_dict['cuda'] else "cpu")
-    constraint_model = transition_model_linear().to(device)
-    constraint_model.load_state_dict(th.load(argv.constraint_model_path))
+# alg_config_dict['safe_filter'] = argv.safe
+# if argv.safe != 'none':
+#     alg_config_dict['constraint_model_path'] = argv.constraint_model_path
+#     device = th.device("cuda" if th.cuda.is_available()
+#                        and alg_config_dict['cuda'] else "cpu")
+#     constraint_model = transition_model_linear().to(device)
+#     constraint_model.load_state_dict(th.load(argv.constraint_model_path))
 
+# If you want to use wandb, please replace project and entity with yours.
 if argv.wandb:
     wandb.init(
         project='mapdn_model-based',

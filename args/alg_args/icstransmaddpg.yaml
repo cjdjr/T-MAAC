@@ -10,8 +10,6 @@ alg_args:
     # for actor
     "encoder": True
     "encoder_lrate": 1.0e-5 # for encoder in critic
-    # "enc_hid_size": 64
-    # "out_hid_size": 8
     "attend_heads": 4
     "n_layers": 3
     "pretrained": null # None / encoder.pth
@@ -28,7 +26,8 @@ alg_args:
     "value_grad": True
     "merge_act": False
 
-    "auxiliary_loss": False
+    # for cost (not used)
+    "cost_loss": False
     "cost_head_lrate": 1.0e-4
     "split_constraint": True
     "cost_type": "agent"

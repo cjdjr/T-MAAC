@@ -128,6 +128,14 @@ temp-plot.html
 wandb/
 img/
 agents/rnn_agent_dateemb.py
+args/alg_args/coma.yaml
+args/alg_args/facmaddpg.yaml
+args/alg_args/iac.yaml
+args/alg_args/iddpg.yaml
+args/alg_args/ippo.yaml
+args/alg_args/maac.yaml
+args/alg_args/mappo.yaml
+args/alg_args/sqddpg.yaml
 args/alg_args/csmaddpg.yaml
 args/alg_args/cstransmaddpg.yaml
 args/alg_args/encmaddpg.yaml
@@ -135,9 +143,10 @@ args/alg_args/icsmaddpg.yaml
 args/alg_args/safemaddpg.yaml
 args/alg_args/totqtransmaddpg.yaml
 args/alg_args/transmaddpg.yaml
-critics/transformer_critic.py
-critics/transformer_encoder_ex.py
-critics/transformer_encoder_IMR.py
+args/env_args/var_voltage_control_dis.yaml
+transformer/transformer_encoder.py
+transformer/transformer_encoder_ex.py
+transformer/transformer_encoder_IMR.py
 models/constrained_maddpg.py
 models/cs_trans_maddpg.py
 models/cs_trans_trans_maddpg.py
@@ -146,6 +155,7 @@ models/ind_constrained_maddpg.py
 models/safe_maddpg.py
 models/totq_transmaddpg.py
 models/trans_maddpg.py
+learning_algorithms/ppo.py
 transition/
 *.sh
 

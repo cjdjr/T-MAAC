@@ -40,6 +40,8 @@ parser.add_argument("--mode", type=str, nargs="?", default="distributed",
                     help="Please enter the mode: distributed or decentralised.")
 parser.add_argument("--scenario", type=str, nargs="?", default="case322_3min_final",
                     help="Please input the valid name of an environment scenario.")
+parser.add_argument("--qweight", type=float, nargs="?", default=0.1,
+                    help="Please input the q weight of env: 0.01 for case141 and 0.1 for case322")
 parser.add_argument("--voltage-barrier-type", type=str, nargs="?", default="l2",
                     help="Please input the valid voltage barrier type: l1, courant_beltrami, l2, bowl or bump.")
 parser.add_argument("--date-emb",  action='store_true')
@@ -76,6 +78,8 @@ assert argv.mode in ['distributed', 'decentralised',
                      'centralised'], "Please input the correct mode, e.g. distributed or decentralised."
 env_config_dict["mode"] = argv.mode
 env_config_dict["voltage_barrier_type"] = argv.voltage_barrier_type
+
+env_config_dict["q_weight"] = argv.qweight
 
 # for one-day test
 env_config_dict["episode_limit"] = 480

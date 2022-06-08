@@ -1,7 +1,7 @@
 import torch.nn as nn
 import torch
 
-
+# Baseline + auxiliary head
 class RNNAgent(nn.Module):
     def __init__(self, input_shape, args):
         super(RNNAgent, self).__init__()
